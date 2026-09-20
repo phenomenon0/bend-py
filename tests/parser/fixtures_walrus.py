@@ -1,0 +1,65 @@
+"""P13 fixtures: named expressions (`:=`). Oracle-validated like fixtures.py, which imports these."""
+# Accepted by the pinned ast.parse. The first is the `stmt_walrus.bend` wire source; the next 19 were `UNSUPPORTED` entries until P13.
+WALRUS_STATEMENTS = [
+    '@(d := e)\ndef f(a):\n    if (n := len(a)) > 1: return [y := f(n), y ** 2]\n    while c := a.pop(): print(f"{(z := c)!r}", k=(w := z), *[v for v in a if (u := v)])\n', '(x := 1)',
+    'with (x := 1): pass', 'a[x:=1]', 'a[1:(x:=2)]', 'f"{(x := 1)}"', '[x := 1 for x in y]', '[x for x in (y := z)]', '[x for x in y if (z := x)]', 'f(x := 1 for x in y)', '{(k := a): b for a in c}',
+    'x: (y := 1)', 'x: int = (y := 1)', 'yield (x := 1)', 'x = yield (y := 1)', '(yield (x := 1))', 'await (x := 1)', '[x async for x in (y := z)]', 'async with (x := 1): pass', "f'{yield (x := 1)}'",
+    '((x := 1))', '(x := 1, 2)', '(x := 1, y := 2)', '(*a, x := 1)', '(x := 1,)', '(x := (y := 1))', '(x := 1 if a else 2)', '(x := lambda: 1)', '(x := lambda: (y := 1))', '(x := a or b)',
+    '(x := not a)', '(x := a < b)', '(x := (yield))', '(x := await y)', '(x := f(y := 2))', '(x := [y := 1, y ** 2])', '(x := a, b)', '(x := 1) + 2', 'y = (x := 1)', 'y = (x := 1) + (z := 2)',
+    'y += (x := 1)', 'y: int = (x := 1)', 'y: (x := int) = 1', '(x, y := 1, 2)', '(x :=\n 1)', '(\n x\n :=\n 1\n)', '(x := 1 for x in y)', '(x := a for a in b if a)', '((x := a) for a in b)',
+    '(x for x in (y := z))', '(x for x in y if (z := x))', '[x := 1]', '[x := 1, y := 2]', '[(x := 1)]', '[y := f(x), y**2]', '[*a, x := 1]', '[(x := 1) for x in y]',
+    '[x for x in y if (z := x) if (w := z)]', '[x := 1 async for x in y]', '[[y := x for x in a] for a in b]', '{x := 1}', '{x := 1, y := 2}', '{(x := 1)}', '{x := 1 for x in y}', '{(x := 1): 2}',
+    '{1: (x := 2)}', '{**(x := 1)}', '{a: (v := b) for a in c}', 'f(x := 1)', 'f(x := 1, y := 2)', 'f(a, x := 1)', 'f(x := 1, a)', 'f(x := 1, k=2)', 'f(k=(x := 1))', 'f(*(x := 1))', 'f(**(x := 1))',
+    'f((x := 1) for x in y)', 'f(x := 1)(y := 2)', 'f(x := 1).a[y := 2]', 'class A(x := 1): pass', 'class A(B, x := 1, k=(y := 2)): pass', 'a[x := 1]', 'a[(x := 1)]', 'a[x := 1, 2]', 'a[1, x := 2]',
+    'a[x := 1, y := 2]', 'a[(x := 1):2]', 'a[1:(x := 2)]', 'a[1:2:(x := 3)]', 'a[1:2, x := 3]', 'a[x := 1,]', 'a[*b, x := 1]', 'a[x := 1] = 2', 'del a[x := 1]', 'if x := f(): pass',
+    'if (x := f()): pass', 'if x := f():\n    pass\nelif y := g():\n    pass\nelse:\n    pass', 'if x := a if b else c: pass', 'if not (x := 1): pass', 'if a and (x := 1): pass',
+    'if x := a and b: pass', 'if x := (yield): pass', 'if x := lambda: 1: pass', 'while x := f(): pass', 'while (x := f()) is not None: pass', 'while x := f() is not None: pass',
+    'while chunk := f.read(8192):\n    total += len(chunk)\nelse:\n    pass', 'for x in (y := z): pass', 'with (x := 1) as y: pass', 'with (x := 1) as y, (z := 2): pass',
+    'with (x := 1, y := 2): pass', 'with ((x := 1), (y := 2)): pass', 'with (x := 1) as y, (z := 2) as w: pass', 'async for x in (y := z): pass', 'return (x := 1)', 'return (x := 1), 2',
+    'assert (x := 1)', 'assert (x := 1), (y := 2)', 'raise (x := 1)', 'raise (x := E) from (y := c)', 'yield from (x := 1)', 'lambda: (x := 1)', 'lambda x=(y := 1): x', 'def f(x=(y := 1)): pass',
+    'def f(x: (y := 1)): pass', 'def f() -> (y := 1): pass', 'def f(*a: (y := 1)): pass', '@x := 1\ndef f(): pass', '@(x := 1)\ndef f(): pass', '@x := f(1)\nclass A: pass', 'f"{x := 1}"', 'f"{x:=1}"',
+    'f"{(x:=1)!r:>{(w := 10)}}"', 'f"{(x := 1) = }"', 'f"{x:{y := 1}}"', 'f"{x:{(y := 1)}}"', 'f"{(x := 1), (y := 2)}"', 'f"{x := 1, 2}"', 'f"{(yield (x := 1))}"', 'f"{[y := 1, y]}"',
+    'f"{f(x := 1)}"', 'x = a if (b := c) else d', 'x = (a := 1) if b else (c := 2)', 'x = (y := 1) or (z := 2)', 'x = not (y := 1)', 'x = -(y := 1)', 'x = (y := 1) ** (z := 2)',
+    'x = (y := 1) < (z := 2) < (w := 3)', 'x = (y := 1).real', 'x = (y := f)(z := 2)', 'x = (y := a)[z := 0]', 'x = [(y := 1), (y := 2)]', 'x = *(y := a),', '(x := 1); (y := 2)',
+    'try: pass\nexcept (x := E): pass', 'try: pass\nexcept (x := E) as e: pass', '(x := 1) if True else 0', '(x := 1).y = 2', '(x := a).y: int = 2', '(x := a)[0] += 1', "print(x := 1, end=(e := ''))",
+    'if any((w := n) > 5 for n in ns): pass', 'if (m := re.match(p, s)) and (g := m.group(1)): pass', 'if (n := len(a)) > 10: print(f"{n}")', 'data = [y for x in xs if (y := f(x)) is not None]',
+    "while (line := fp.readline()) != '': pass", '(match := 1)', '(case := 1)', '(_ := 1)', '(type := 1)', '(print := 1)', '(__x__ := 1)', '(x:=1)', '(x:= 1)', '(x :=1)', '(x := 1 # c\n)',
+    '(x := \\\n 1)', '(x\n := 1)', 'if (x :=\n    1): pass', 'f(x :=\n  1,\n  y := 2,\n)', '[\n  x := 1,\n  y := 2,\n]', 'x[y := 1][z := 2]', 'x[(y := 1):(z := 2):(w := 3)]', 'x[y := 1, (z := 2):3]',
+    '(x := 1)(y := 2)', '(x := f)(*(y := a), **(z := k))', '[i := 0 for i in range(3)]', '[[(j := i) for i in range(3)] for j in range(3)]', '{(a := 1): (b := 2), (c := 3): (d := 4)}',
+    '{(a := 1), (b := 2)}', '{a := 1, *b, c := 2}', '(a := 1, *b, c := 2)', '[a := 1, *b, c := 2]', 'f(a := 1, *b, c := 2)', 'f(a := 1, *b, k=1, **d)', 'f(*b, a := 1)', 'f(a:=1)', 'f(a:=1, b:=2)',
+    'f(a := 1 if b else 2)', 'f(a := lambda: 1)', 'f(a := 1,)', 'async def f():\n    while (chunk := await r.read()):\n        yield chunk\n',
+    'def f():\n    if (m := p.match(s)) is None:\n        return\n    elif n := m.group(1): pass\n    return m, n\n', 'class A:\n    x = (y := 1)\n    z: int = (w := 2)\n',
+    'x = [\n    y := f(a),\n    y ** 2,\n    (z := y),\n]\n', 'if (\n    x := f()\n) and (y :=\n       g()): pass\n',
+    'try:\n    pass\nexcept (E := F) as e:\n    raise (g := e) from (h := None)\nfinally:\n    del a[i := 0]\n', 'lambda: (yield (x := 1))', 'f(x := 1)[y := 2].z', 'f(x:=1)\n',
+    "print((x := 1), (y := 2), sep=(s := ''))", '{(x := 1): (y := 2) for z in (w := a) if (v := z)}', '(x := 1 async for x in y)', "assert (x := 1), (y := 'm')", 'global x; (x := 1)', 'x = (y := 1),',
+    'x = (y := 1, 2)', "(x := 'a' 'b')", "(x := f'{y}')", "(x := f'{(y := 1)}')", '(x := ...)', '(x := -1 ** 2)', '(x := a[1:2])', '(x := {k: v for k, v in z})', '(x := (yield from y))',
+    '(x := await y ** 2)', '(x := not y)', '(x := a is not b)', '(x := a if (b := c) else d)', '{**a, (b := 1): 2}', 'del a[x := 1], (b := c).d', 'a[x := 1]: int = 2', 'a[x := 1] += 2',
+    'with a, (x := 1) as y: pass', 'with (a, (x := 1)) as y: pass', 'with (a as b, (x := 1)): pass', 'with ((x := 1) as y): pass', 'return lambda: (x := 1)',
+]
+
+# Rejected by the pinned ast.parse. The first 7 answered `Unsupported` (`production :=`) under the P7-P12 refusal policy.
+WALRUS_INVALID = [
+    'a[::=1]', '[x for x in y if z := x]', '[x for x in y := z]', 'x: y := 1', 'x: int = y := 1', 'yield x := 1', 'await := 1', '(x := y := 1)', '(x := *a)', '(x := yield)', 'x := 1', 'x = y := 1',
+    'x = (y := 1) = 2', '(x := 1) = 2', '(x := 1) += 2', '(x := 1): int', 'x, y := 1, 2', '((x, y) := 1)', '(a.b := 1)', '(a[0] := 1)', '((a) := 1)', '([a] := 1)', '(f() := 1)', '(1 := 1)',
+    '(None := 1)', '(True := 1)', '("a" := 1)', '(lambda := 1)', '(x :=)', '(:= 1)', '(x := := 1)', '(x : = 1)', '(x for x in y := z)', '(x for x in y if z := x)', '(x for (x := 1) in y)',
+    '(x for x := 1 in y)', '[x := *a]', '[x := 1, for x in y]', '{x := 1: 2}', '{1: x := 2}', '{**x := 1}', '{k := a: b for a in c}', '{a: v := b for a in c}', '{*x := 1}', 'f(k=2, x := 1)',
+    'f(k=x := 1)', 'f(k := 1 = 2)', 'f(*x := 1)', 'f(**x := 1)', 'f(x := 1 for x in y, 2)', 'class A(k=x := 1): pass', 'a[x := 1:2]', 'a[1:x := 2]', 'if x := 1, 2: pass', 'if x := y := 1: pass',
+    'if not x := 1: pass', 'if a and x := 1: pass', 'if x := 1: y := 2', 'if a.b := 1: pass', 'if (x) := 1: pass', 'if x := yield: pass', 'if x := *a: pass', 'while x := 1, 2: pass',
+    'for x in y := z: pass', 'for x := 1 in y: pass', 'for (x := 1) in y: pass', 'with x := 1: pass', 'with a as (x := 1): pass', 'async with x := 1: pass', 'return x := 1', 'del x := 1',
+    'del (x := 1)', 'assert x := 1', 'assert a, x := 1', 'raise x := 1', 'raise E from x := 1', '(yield x := 1)', 'yield from x := 1', '(yield := 1)', 'await x := 1', '(await x := 1)', '(await := 1)',
+    '(async := 1)', 'lambda: x := 1', '(lambda: x := 1)', 'lambda x := 1: 2', 'lambda x=y := 1: x', 'def f(x=y := 1): pass', 'def f(x: y := 1): pass', 'def f() -> y := 1: pass',
+    '@x := 1, 2\ndef f(): pass', '@a.b := 1\ndef f(): pass', 'x = a if b := c else d', 'x = a if b else c := 2', 'x = y := 1 or 2', 'x = *y := a,', '(x := 1); y := 2', 'import x := 1',
+    'global x := 1', 'try: pass\nexcept x := E: pass', 'x[y := 1, z := 2:3]', 'x[:y := 1]', 'x[::y := 1]', 'not x := 1', '-x := 1', '(not x := 1)', '(-x := 1)', '(x := 1 := 2)', '(x := y) := 1',
+    '((x := y) := 1)', '[x := 1] = 2', '[(x := 1)] = 2', '(a, (x := 1)) = 2', 'for (x := 1), y in z: pass', 'for [x := 1] in z: pass', 'del [x := 1]', 'del (a, (x := 1))', 'with a as [x := 1]: pass',
+    '(x := 1) : int = 2', '((x := 1)): int', 'f(k=1, *b, a := 1)', 'f(**d, a := 1)', 'f(a := b := 1)', 'f(a := *b)', 'f(a := **b)', 'f(a.b := 1)', 'f(a[0] := 1)', 'f((a) := 1)', 'f(1 := 1)',
+    'f(a := 1 = 2)', 'f(a = 1 := 2)', 'f(a := 1,, b)', 'class A:\n    x = (y := 1)\n    def f(self, a=(b := 2)) -> (c := int):\n        return (self.z := 1)\n', 'for x in a: y := x',
+    'while x := 1: y := 2', 'def f(): return x := 1', 'x = 1; y := 2', 'x = y, z := 1, 2', 'a[b:=1:2]', 'a[:=1]', 'a[x :=]', '(x := 1 y)', '(x := 1', 'x := 1)', '[x := 1', 'f(x := )', 'if x :=: pass',
+    'if := 1: pass', 'while x := : pass', 'with x := 1 as y: pass', 'import a := b', 'from a import (b := c)', 'def f(x := 1): pass', 'def f(x, y := 1): pass', 'class A(x := 1, *y := 2): pass',
+    'lambda x, y := 1: x', 'for x in y if z := 1: pass', 'x = {a := 1: 2}', 'x = {1: a := 2}', 'x = {a: b := 1 for a in c}', '{**a, b := 1}', '{a: 1, b := 2}', '{b := 2, a: 1}', "f'{x!r := 1}'",
+    'x if y := 1 else z', 'x = (yield y := 1)', 'with (a as b, x := 1): pass', 'with (x := 1 as y): pass',
+]
+
+# Accepted by the pinned ast.parse; what the walrus holds or sits in is still a later slice.
+WALRUS_UNSUPPORTED = [
+    '(ﬁ := 1)', '(x := ﬁ)', 'if ﬁ := 1: pass', 'f(ﬁ := 1)', '[ﬁ := 1]',
+]
