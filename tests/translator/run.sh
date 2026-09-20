@@ -5,9 +5,17 @@
 # closed doctests as checked laws), the five defs and the two modules each with --optimize: optimize.bend's file is
 # the faithful one byte for byte, or (repo_of) judged again, C1-C4.
 # C5 times the rewrite and is not a gate: `judge.py --demo repo_of --optimize --bench`.
+# Then the stub pass's ten mined defs (tests/translator/demos_stubs1.py), same claims, same four lanes:
+# six carry a reviewed stub as their signature, four are annotated in their own source, and each one's
+# refusal control edits that claim by a single type and must be refused, not emitted.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 export PATH="$HOME/.local/bin:$PATH"
+# Pin the environment alongside the bytes: the interpreter's daily check
+# prints a one-line update notice to stderr when upstream has a newer
+# release, and these lanes byte-compare raw stdout+stderr. The notice is
+# network state, not output; the switch is the interpreter's own.
+export BEND_NO_TELEMETRY=1
 work=$(mktemp -d /tmp/bend-translator.XXXXXX)
 trap 'rm -rf -- "$work"' EXIT
 pass=0
@@ -110,7 +118,9 @@ for t in tests/translator/*.bend; do
     fi
   done
 done
-for demo in normalize_stem repo_of first_dash fm_sources source_stems html_file_name page_tail; do
+for demo in normalize_stem repo_of first_dash fm_sources source_stems html_file_name page_tail \
+            escape_path upgrade_tumblr_url sc_feas_class is_unet_key make_word_regex \
+            string_begins_with is_remote_or_virtual_path safe_name esc canon_bool; do
   python3 tests/translator/judge.py --demo "$demo" --optimize || fail=$((fail + 1))
 done
 printf '\nTranslator PASS: %d, FAIL: %d\n' "$pass" "$fail"

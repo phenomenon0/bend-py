@@ -281,23 +281,25 @@ decision, and it is closed here:
 
 | bench | what it runs | C | bend 1T | bend 16T | 1T/C | 1T→16T |
 |---|---|---:|---:|---:|---:|---:|
-| `postings` | 4,096 rounds, 8 sets built and 4 operations a round | 0.10 | 0.52 | 0.47 | 5.0x | 1.1x |
-| `postings_par` | 2^8 shards of 32 rounds, disjoint seeds | 0.19 | 1.04 | 0.20 | 5.5x | 5.2x |
+| `postings` | 4,096 rounds, 8 sets built and 4 operations a round | 0.09 | 0.44 | 0.44 | 5.0x | 1.0x |
+| `postings_par` | 2^8 shards of 32 rounds, disjoint seeds | 0.17 | 0.88 | 0.14 | 5.0x | **6.4x** |
 
-Checksums 22904446 and 2655450973, identical on C, 1T and 16T.
+Checksums 22904446 and 2655450973, identical on C, 1T and 16T — `run.sh` will
+not time a row until those three agree.
 
-> `postings_par`'s three timings were taken before its fold was changed to the
-> suite mixer (see the counterexample section below); the checksum beside them
-> is the post-change one. The mixer is two integer operations per internal node
-> across 255 nodes against ~8,000 rounds of set algebra, so it should not move
-> them — but *should not* is an expectation, and these three numbers stand as
-> provisional until the gate's own table prints them on a quiet machine. The
-> `postings` row is unaffected: it has no tree.
+> Both rows were re-taken after the fold changed to the suite mixer, on a
+> machine with no other lane on it. The expectation written here when they were
+> provisional — that two integer operations per internal node across 255 nodes
+> could not move numbers dominated by ~8,000 rounds of set algebra — held:
+> `1T/C` is 5.0x either way. What *did* move is `1T→16T`, 5.2x → **6.4x**, and
+> that is the earlier run's contention coming out of the 16T column, not the
+> mixer. The lesson is the one `POWER.md` already states about the lock: a bench
+> run on a loaded machine measures the load.
 
-A 65,536-document
-universe; the four operations are chosen to be the four *distinct paths* rather
-than four calls — sparse∧sparse is one merge at mode 2, dense∨dense is Bitset's
-cell loop, sparse∧dense is the sieve, sparse∨dense is the paint. `andnot` is not
+A 65,536-document universe; the four operations are chosen to be the four
+*distinct paths* rather than four calls — sparse∧sparse is one merge at mode 2,
+dense∨dense is Bitset's cell loop, sparse∧dense is the sieve, sparse∨dense is
+the paint. `andnot` is not
 a fifth path: it is the same merge at mode 4, the same sieve at `want=False` and
 the same paint through `off`. 512 ids is under the 65,536/32 = 2,048 threshold
 and 4,096 is over it, so `optimize` takes its sparse arm four times a round and
@@ -307,7 +309,19 @@ being assumed.
 `postings` is flat across threads by construction, like `bm25`: one sequential
 round loop with nothing to fork. `postings_par` is the scaling number, and its
 shape is the one this lane already predicted — a `Set` holds an array, an array
-has one owner, so no shard can share a set. 5.2x on 16 threads.
+has one owner, so no shard can share a set. The row above is the measurement;
+this sentence used to repeat the pre-mixer 5.2x and was left behind by the
+correction two paragraphs up, which is the argument for pointing at the table
+rather than restating its numbers in prose.
+
+Measured a third time by the integrator on a verified-quiet machine, as the
+package-wide table in `POWER.md` was taken: `postings` 0.09 / 0.44 / 0.43,
+**5.1x** and 1.0x; `postings_par` 0.18 / 0.87 / 0.12, **4.9x** and **7.2x**.
+The `1T/C` column reproduces to within rounding across all three runs, which is
+what a load-independent number should do. `1T→16T` went 5.2x → 6.4x → 7.2x
+across three progressively quieter machines — the same one-directional drift
+the blockquote diagnosed, and the reason the scaling column is the one to
+distrust when anything else is running.
 
 ### The checksum that agreed three ways and was still wrong
 

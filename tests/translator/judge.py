@@ -445,6 +445,12 @@ DEMOS = {
     },
 }
 
+# The stub pass's ten, same shape, in their own file: judge.py is at its ttok cap.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from demos_stubs1 import demos as _stubs1  # noqa: E402
+
+DEMOS.update(_stubs1(ALPHABET, WS))
+
 
 def extract(path, name):
     """(def text, line, def node)."""
@@ -603,6 +609,8 @@ def law_file(name, ret, laws):
 def encode(e, maybe):
     if e is None:
         return "N|"
+    if isinstance(e, bool):
+        return "1|" if e else "0|"
     if isinstance(e, list):
         return "".join("".join(f"{ord(c)} " for c in x) + ";" for x in e) + "|"
     return ("S " if maybe else "") + "".join(f"{ord(c)} " for c in e) + "|"
@@ -633,6 +641,17 @@ def harness(name, inputs, expected, maybe):
             '      "S " ++ codes(s)',
             "",
         ]
+    flagged = any(isinstance(e, bool) for e in expected)
+    if flagged:
+        out += [
+            "def flag(b: Bool) -> String:",
+            "  match b:",
+            "    case True{}:",
+            '      "1|"',
+            "    case False{}:",
+            '      "0|"',
+            "",
+        ]
     listed = any(isinstance(e, list) for e in expected)
     if listed:
         out += [
@@ -656,7 +675,7 @@ def harness(name, inputs, expected, maybe):
             f"def part{k}() -> String:",
             "  "
             + " ++\n  ".join(
-                f"{'shown' if maybe else 'listed' if listed else 'codes'}(T.{name}({', '.join(map(bend_value, a))}))"
+                f"{'shown' if maybe else 'flag' if flagged else 'listed' if listed else 'codes'}(T.{name}({', '.join(map(bend_value, a))}))"
                 for a in part
             ),
             "",
@@ -691,7 +710,8 @@ def sh(*cmd, env=None):
     r = subprocess.run(
         cmd,
         cwd=ROOT,
-        env={**os.environ, **(env or {})},
+        # The daily version check writes to stderr, and stderr is part of an emitted file here.
+        env={**os.environ, "BEND_NO_TELEMETRY": "1", **(env or {})},
         capture_output=True,
         text=True,
         timeout=600,
@@ -714,11 +734,11 @@ def lanes(test, work):
     return got
 
 
-def emit(tool, work, name, demo, text):
+def emit(tool, work, name, demo, text, sig=None):
     """(rc, file): demos/python/<tool>.bend on the def text, with the demo's reviewed stub."""
     work.mkdir(exist_ok=True)
     (work / f"{name}.py").write_text(text, encoding="utf-8")
-    (work / "sig.py").write_text(demo.get("sig", ""), encoding="utf-8")
+    (work / "sig.py").write_text(demo.get("sig", "") if sig is None else sig, encoding="utf-8")
     return sh(
         "bun",
         "bend2/main.ts",
@@ -775,10 +795,17 @@ def judge(name, show):
 
         # A postcondition control: the same module with the claim made false in the PYTHON, which
         # the kernel must refuse outright -- an emission the caller could not have had.
+        # The reviewed claim is the stub when there is one, and the source's own header when
+        # there is not: a control edits whichever holds it, and both must be refused.
         refused = None
         for rold, rnew, _, rerr in demo.get("refuse", []):
-            assert rold in text, "the refusal control does not apply to this source"
-            rc, out = emit("translate", work / "refuse", name, demo, text.replace(rold, rnew))
+            in_sig = rold in demo.get("sig", "")
+            assert in_sig or rold in text, "the refusal control does not apply to this source"
+            rc, out = emit(
+                "translate", work / "refuse", name, demo,
+                text if in_sig else text.replace(rold, rnew),
+                demo["sig"].replace(rold, rnew) if in_sig else None,
+            )
             refused = (refused in (None, True)) and rc != 0 and rerr in out
 
         # The doctest laws: the checker decides each by computation; a falsified want must fail.
