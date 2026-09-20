@@ -29,20 +29,17 @@ One bundle, four extractable seams.
 
 ## Launch checklist (before public)
 
-1. **Standalone runner** — suites currently assume they live inside a Bend
-   checkout (`bun bend2/main.ts`, repo-relative paths). Rewire via `BEND_DIR`
-   (default: sibling checkout) or pin a bend binary; then `bash tests/*/run.sh`
-   works from here.
-2. **Corpus provisioning** — parser corpus is external (project + CPython
-   3.11.15 stdlib). Bundle a license-safe sample or document acquisition
-   (`tests/parser/diff.py --corpus`).
-3. **License** (MIT vs Apache-2.0) + provenance notes for corpus fixtures
-   (PSF for stdlib-derived).
-4. **Translator tour page** — same pattern as the strings tour; the public
-   demo. README polish with it.
-5. **Name/visibility** — repo `bend-python` (working name; alternatives
-   `python-bridge`, `bendpy`). Public only on the operator's word.
-6. Two upstream `bend.ts` bugs found during the 2.0.17 sync → file as issues
+1. ✅ **Standalone runner** — `setup.sh` (`BEND_DIR`, default sibling `../bend`)
+   links `bend2/` and bridges `demos/python -> python/`; every suite runs from a
+   plain clone.
+2. ✅ **Corpus provisioning** — documented in `tests/parser/CORPUS.md`;
+   `manifest.py` honors `PKG_TOOLS_DIR` / `PKG_CORPUS_TREE` / `PKG_FORBIDDEN_DIR`.
+3. ✅ **License** — MIT (`LICENSE`); corpus stays unbundled, so no provenance
+   headers are carried here (see CORPUS.md).
+4. ⏳ **Translator tour page** — in build (same pattern as the strings tour).
+5. ⏳ **Name/visibility** — repo `bend-python` (working name). Public only on
+   the operator's word.
+6. ⏳ Two upstream `bend.ts` bugs found during the 2.0.17 sync → file as issues
    against bendlang/bend (separate, courteous act).
 
 ## Versioning

@@ -7,14 +7,18 @@ import os
 import sysconfig
 from pathlib import Path
 
-TOOLS = Path.home() / "Documents/Project/llm-wiki/tools"
-FORBIDDEN = Path.home() / "Documents/Project/bend"
+TOOLS = Path(os.environ.get("PKG_TOOLS_DIR",
+                            Path.home() / "Documents/Project/llm-wiki/tools"))
+FORBIDDEN = Path(os.environ.get("PKG_FORBIDDEN_DIR",
+                                Path.home() / "Documents/Project/bend"))
+TREE = Path(os.environ.get("PKG_CORPUS_TREE",
+                           Path.home() / "Documents/Project"))
 
 
 def paths(tier):
     if tier == "1":
         return sorted(TOOLS.glob("*.py"))
-    base = Path(sysconfig.get_path("stdlib")) if tier in {"3", "lex"} else Path.home() / "Documents/Project"
+    base = Path(sysconfig.get_path("stdlib")) if tier in {"3", "lex"} else TREE
     found = list(TOOLS.glob("*.py")) if tier == "lex" else []
     for root, dirs, files in os.walk(base, followlinks=False):
         dirs[:] = sorted(d for d in dirs if d not in {".git", ".venv", "venv", "node_modules", "site-packages", "_out", "__pycache__"}

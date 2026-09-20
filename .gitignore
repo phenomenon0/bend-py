@@ -4,3 +4,6 @@ _out/
 node_modules/
 .DS_Store
 work/
+# created by setup.sh (they belong to the Bend checkout, not this repo)
+bend2
+demos/

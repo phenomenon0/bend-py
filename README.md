@@ -31,12 +31,21 @@ tests/      parser · lint · translator · power suites + the corpus wiring
 docs/       lane reports (the versioned history) + BOUNDARY (ownership) + PACKAGE (the one-pager)
 ```
 
-## Running today
+## Running (from a clone)
 
-The suites expect to run inside a Bend checkout (they compile with the repo's own `bend`). The standalone runner — `BEND_DIR` or a pinned binary — is the first item on the lift checklist in `docs/PACKAGE.md`.
+Point it at a Bend checkout once — the suites then run unchanged:
+
+```sh
+BEND_DIR=/path/to/bend ./setup.sh   # default: a sibling checkout at ../bend
+bash tests/translator/run.sh        # or tests/lint, tests/power, tests/parser
+```
+
+`setup.sh` links `bend2/` from the checkout and bridges the suites' historical
+`demos/python` path to this repo's `python/`. The parser suite additionally
+needs a corpus and the CPython 3.11.15 oracle — see `tests/parser/CORPUS.md`.
 
 ## Provenance & licensing
 
 - Parser corpus: external trees (project sources + CPython 3.11 stdlib); a public release must bundle a license-safe sample or document provisioning (see `tests/parser/diff.py`).
 - Built on [Bend](https://github.com/bendlang/bend). The bridge is ours (`docs/BOUNDARY.md`); core Bend work lives in the fork, not here.
-- License: TBD before public.
+- License: MIT — see `LICENSE`.
