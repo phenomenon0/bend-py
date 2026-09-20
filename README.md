@@ -44,6 +44,12 @@ bash tests/translator/run.sh        # or tests/lint, tests/power, tests/parser
 `demos/python` path to this repo's `python/`. The parser suite additionally
 needs a corpus and the CPython 3.11.15 oracle — see `tests/parser/CORPUS.md`.
 
+## The tour
+
+`tour/index.html` — one module checked end to end (a real fact crossing a call
+is *recomputed* by the kernel and minted into the signature), the emitted Bend,
+the refusals, and how to run everything. Single static file, no build step.
+
 ## Provenance & licensing
 
 - Parser corpus: external trees (project sources + CPython 3.11 stdlib); a public release must bundle a license-safe sample or document provisioning (see `tests/parser/diff.py`).

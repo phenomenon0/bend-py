@@ -36,7 +36,8 @@ One bundle, four extractable seams.
    `manifest.py` honors `PKG_TOOLS_DIR` / `PKG_CORPUS_TREE` / `PKG_FORBIDDEN_DIR`.
 3. ✅ **License** — MIT (`LICENSE`); corpus stays unbundled, so no provenance
    headers are carried here (see CORPUS.md).
-4. ⏳ **Translator tour page** — in build (same pattern as the strings tour).
+4. ✅ **Translator tour page** — `tour/index.html` (single static file, captured
+   live from the lane: the checked module, the emitted Bend, the refusals).
 5. ⏳ **Name/visibility** — repo `bend-python` (working name). Public only on
    the operator's word.
 6. ⏳ Two upstream `bend.ts` bugs found during the 2.0.17 sync → file as issues

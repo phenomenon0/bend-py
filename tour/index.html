@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Python bridge — Bend ⇄ Python</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #151a21; --line: #232a33;
+    --ink: #e8e8e6; --dim: #9aa4ad; --mint: #7ee0c0; --amber: #e0b080;
+    --red: #e07070; --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 56px 24px 96px; }
+  h1 { font-size: 40px; letter-spacing: -0.5px; margin: 0 0 8px; font-weight: 650; }
+  h2 { font-size: 22px; margin: 56px 0 14px; font-weight: 600; }
+  p { color: var(--ink); }
+  .sub { color: var(--dim); font-size: 19px; margin: 0 0 26px; }
+  .sub em { color: var(--mint); font-style: normal; }
+  .strip { display: flex; flex-wrap: wrap; gap: 10px 22px; padding: 14px 0 0;
+    border-top: 1px solid var(--line); color: var(--dim); font: 13px/1.5 var(--mono); }
+  .strip b { color: var(--ink); font-weight: 600; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .card h3 { margin: 0; padding: 10px 14px; font: 12.5px/1.4 var(--mono); color: var(--dim);
+    border-bottom: 1px solid var(--line); letter-spacing: .3px; }
+  pre { margin: 0; padding: 14px; overflow-x: auto; font: 12.8px/1.55 var(--mono);
+    color: var(--ink); background: transparent; }
+  .k { color: var(--mint); } .s { color: var(--amber); } .c { color: #6f7a85; }
+  .verdict { padding: 14px; font: 12.8px/1.6 var(--mono); }
+  .verdict .ok { color: var(--mint); }
+  .verdict .dim { color: var(--dim); }
+  blockquote { margin: 14px; padding: 10px 14px; border-left: 3px solid var(--mint);
+    background: #10151b; color: var(--ink); font-size: 14px; }
+  blockquote p { margin: 0; }
+  .refuse li { border-bottom: 1px solid var(--line); }
+  .refuse { list-style: none; margin: 0; padding: 0; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .refuse li { display: grid; grid-template-columns: 210px 1fr; gap: 12px; padding: 9px 14px;
+    font: 12.8px/1.5 var(--mono); }
+  .refuse li:last-child { border-bottom: 0; }
+  .refuse .name { color: var(--dim); }
+  .refuse .err { color: var(--red); }
+  .refuse .emit { color: var(--mint); }
+  .run pre { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .foot { margin-top: 64px; padding-top: 18px; border-top: 1px solid var(--line);
+    color: var(--dim); font: 12.5px/1.6 var(--mono); }
+  a { color: var(--mint); text-decoration: none; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
+  @media (max-width: 760px) { .steps { grid-template-columns: 1fr; } }
+  .step { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .step b { display: block; font: 13px/1.4 var(--mono); color: var(--mint); margin-bottom: 6px; }
+  .step span { color: var(--dim); font-size: 13.5px; }
+</style>
+</head>
+<body>
+<main>
+
+  <h1>The Python bridge</h1>
+  <p class="sub">Python in. <em>Verified Bend out.</em> Or a refusal with its location.</p>
+  <div class="strip">
+    <span><b>parser</b> 8,466/8,466 project + 731/731 stdlib, 0 structural · 0 location diffs</span>
+    <span><b>translator</b> demos judged 200/200 on four lanes, CPython the oracle</span>
+    <span><b>lint</b> kernels L1–L4 · <b>optimize</b> proof-carrying rewrites</span>
+    <span><b>runs from a clone</b> — <span class="c">BEND_DIR=/path/to/bend ./setup.sh</span></span>
+  </div>
+
+  <h2>How a translation is trusted</h2>
+  <div class="steps">
+    <div class="step"><b>1 · elaborate — untrusted</b><span>Python source becomes a typed IR. Nothing it says is believed; it only proposes.</span></div>
+    <div class="step"><b>2 · verify — the kernel</b><span>Every claim is recomputed from the IR alone: types, calls, ranks, guards, postconditions. One bad entry refutes all.</span></div>
+    <div class="step"><b>3 · emit — or refuse</b><span>Only what verified renders as Bend. Everything else is a refusal with a span, the rule, and the repair.</span></div>
+  </div>
+  <p class="dim" style="font-size:14px;margin-top:12px">Four lanes per specimen — strict check, interpreter, emitted JS, emitted C — plus CPython as the oracle for answers (C2) and byte-identical emission pins.</p>
+
+  <h2>A module the kernel checks</h2>
+  <div class="cols">
+    <div class="card">
+      <h3>python — two defs mined from llm-wiki (sha256-pinned) + a labeled caller</h3>
+<pre><span class="k">def</span> source_stems(text: str) -&gt; list[str]:
+    v = keyed_sources(text)
+    <span class="k">return</span> [normalize_stem(s.split(<span class="s">':'</span>, 1)[1]) <span class="k">for</span> s <span class="k">in</span> v]
+
+<span class="k">def</span> keyed_sources(text: str) -&gt; list[str]:
+    <span class="k">return</span> [<span class="s">'stem:'</span> + s <span class="k">for</span> s <span class="k">in</span> fm_sources(text)]
+
+<span class="k">def</span> fm_sources(text):   <span class="c"># tools/synapse.py:77 — unannotated; reviewed via stub</span>
+    m = re.search(<span class="s">r"^---\n(.*?)\n---"</span>, text, re.S)
+    ...
+
+<span class="k">def</span> normalize_stem(s: str) -&gt; str:   <span class="c"># tools/wiki.py:92</span>
+    <span class="c">"""Lowercase and replace spaces with hyphens."""</span>
+    <span class="k">return</span> s.strip().lower().replace(<span class="s">" "</span>, <span class="s">"-"</span>)</pre>
+    </div>
+    <div class="card">
+      <h3>what the judge said</h3>
+      <div class="verdict">
+        source <span class="dim">llm-wiki tools/synapse.py:77 fm_sources — ast-extracted; never imported</span><br>
+        fixtures <span class="dim">9 literal + 31 edge + 160 generated = 200</span><br><br>
+        C1 checker acceptance : <span class="ok">ok</span> <span class="dim">(strict check; check+interpret+js+c all ran)</span><br>
+        C2 source parity : <span class="ok">ok interpret 200/200 js 200/200 c 200/200; lanes identical</span><br>
+        C3 : <span class="ok">tested fragment</span> <span class="dim">— the module is the claim</span><br>
+        controls : <span class="ok">ok</span> <span class="dim">(hole → C1; empty map → C2; the key without its colon → refused)</span>
+      </div>
+      <blockquote><p>One fact crosses a call: <b>keyed_sources</b> puts every item of its result under the <span class="s">stem:</span> key, the kernel recomputes that from its body and mints it into the signature, and the caller's <span class="k">split(':', 1)[1]</span> is granted by that postcondition and by nothing else — its own text never says the colon is there.</p></blockquote>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <h3>the emitted Bend — first lines, captured live from the judge run</h3>
+<pre><span class="c"># Faithful translation (tiers 1-2) of Python `fm_sources`, `keyed_sources`, `normalize_stem`, `source_stems` by demos/python/translate.bend.</span>
+<span class="k">import</span> Base
+
+<span class="k">def</span> fm_sources(text: String) -&gt; List&lt;&amp;2, String&gt;:
+  m = {Py.search(text, <span class="s">"^---\\n(.*?)\\n---"</span>, <span class="s">"s"</span>) : Maybe&lt;&amp;2, Py.Match&gt;}
+  fm_sources.opt_10_4(m)
+
+<span class="k">def</span> keyed_sources.comp_6_11(_xs: List&lt;&amp;2, String&gt;) -&gt; List&lt;&amp;2, String&gt;:
+  <span class="k">match</span> _xs:
+    <span class="k">case</span> Nil{}:
+      []
+    <span class="k">case</span> Con{s, _rest}:
+      String.append(<span class="s">"stem:"</span>, s) &lt;&gt; keyed_sources.comp_6_11(_rest)
+
+<span class="k">def</span> keyed_sources(text: String) -&gt; List&lt;&amp;2, String&gt;:
+  keyed_sources.comp_6_11(fm_sources(text))
+
+<span class="k">def</span> source_stems.comp_3_11(_xs: List&lt;&amp;2, String&gt;) -&gt; List&lt;&amp;2, String&gt;:
+  <span class="k">match</span> _xs:
+    <span class="k">case</span> Nil{}:
+      []
+    <span class="k">case</span> Con{s, _rest}:
+      normalize_stem(Py.after(s, <span class="s">":"</span>)) &lt;&gt; source_stems.comp_3_11(_rest)
+
+<span class="k">def</span> source_stems(text: String) -&gt; List&lt;&amp;2, String&gt;:
+  v = {keyed_sources(text) : List&lt;&amp;2, String&gt;}
+  source_stems.comp_3_11(v)
+
+<span class="c"># spans: emitted Bend &lt;- Python source, node : type</span>
+<span class="c"># 116:33-116:36 &lt;- py 3:35-3:38 Lit ":" : String</span>
+<span class="c"># 119:7-119:26  &lt;- py 2:8-2:27  Call keyed_sources : List&lt;&amp;2, String&gt;</span></pre>
+  </div>
+
+  <h2>Refusals are the product</h2>
+  <p class="dim" style="font-size:14px;margin-top:0">Every refusal carries its span, the rule, and the repair. The rows are pinned in <span class="c">tests/translator/refuse.bend</span>.</p>
+  <ul class="refuse">
+    <li><span class="name">post each false</span><span class="err">primitive Py.after is not granted by a contract (or its guard is not known here) at 3:12</span></li>
+    <li><span class="name">post through a call</span><span class="err">primitive Py.after is not granted by a contract (or its guard is not known here) at 3:11</span></li>
+    <li><span class="name">unguarded split</span><span class="err">primitive Py.after is not granted by a contract (or its guard is not known here) at 2:11</span></li>
+    <li><span class="name">self call</span><span class="err">call f(String;) -&gt; String is granted by no def ranked below this one at 2:11</span></li>
+    <li><span class="name">cycle</span><span class="err">call g(String;) -&gt; String is granted by no def ranked below this one at 2:11</span></li>
+    <li><span class="name">unknown callee</span><span class="err">outside the fragment: Call at 2:11</span></li>
+    <li><span class="name">group zero</span><span class="err">primitive Py.group is not granted by a contract (or its guard is not known here) at 5:12</span></li>
+    <li><span class="name">open module</span><span class="err">module not closed: Import at 1:0</span></li>
+    <li><span class="name">post under a branch</span><span class="emit">emitted</span></li>
+    <li><span class="name">guard and</span><span class="emit">emitted</span></li>
+  </ul>
+
+  <h2>Run it</h2>
+  <div class="run">
+<pre>BEND_DIR=/path/to/bend ./setup.sh   <span class="c"># links the Bend checkout; default: ../bend</span>
+bash tests/translator/run.sh        <span class="c"># or tests/lint, tests/power, tests/parser</span></pre>
+  </div>
+  <p class="dim" style="font-size:14px">The parser suite needs a corpus and the CPython 3.11.15 oracle — see <span class="c">tests/parser/CORPUS.md</span>.</p>
+
+  <div class="foot">
+    captured from lane-translator-t5 @ 66b281df · 2026-09-20 · MIT — see LICENSE<br>
+    built on <a href="https://github.com/bendlang/bend">Bend</a> · the bridge is ours (docs/BOUNDARY.md)
+  </div>
+
+</main>
+</body>
+</html>
