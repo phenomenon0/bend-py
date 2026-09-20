@@ -68,15 +68,27 @@ type Ir is Data:
 type Param is Data:
   Param{name: String, ty: Ty, loc: S.Json}
 
+# What a call to a def makes known about its result, in the one predicate a
+# guard on the other side can consume: `String.contains`. PHas is the result,
+# a String; PEach is every item of the result, a list of String. That is the
+# whole set, and the closure argument is exactly that -- a postcondition no
+# guard can discharge would be a type theory, not a tool. `post` on Fn is a
+# CLAIM (a TypedIR is data): the kernel recomputes what the body establishes
+# with `sure` and refuses a claim that is not backed. `post` on Sig is the
+# claim the kernel already checked, which is what a caller may rely on.
+type Post is Data:
+  PHas{text: String}
+  PEach{text: String}
+
 type Fn is Data:
-  Fn{name: String, params: List<&2, Param>, ret: Ty, eff: Eff, body: Ir, loc: S.Json}
+  Fn{name: String, params: List<&2, Param>, ret: Ty, post: List<&2, Post>, eff: Eff, body: Ir, loc: S.Json}
 
 # What a call to a module def must agree with, read off that def's own header.
 # The kernel holds only the signatures of the defs it has already accepted, in
 # the order it accepted them, so a call is granted against a strict prefix:
 # list position IS the rank, and neither a cycle nor a self-call can be stated.
 type Sig is Data:
-  Sig{name: String, params: List<&2, Param>, ret: Ty}
+  Sig{name: String, params: List<&2, Param>, ret: Ty, post: List<&2, Post>}
 
 # A primitive's contract is an assumption about CPython and Base on the value
 # contract (printable ASCII plus the six ASCII whitespace), like SOUNDNESS.md
@@ -219,14 +231,14 @@ def resolves(ss: List<&2, Sig>, +name: String, +args: Ir, +ret: String) -> Bool:
   match ss:
     case Nil{}:
       False{}
-    case Sig{n, ps, r} <> rest:
+    case Sig{n, ps, r, q} <> rest:
       (String.eq(n, name) && String.eq(param_tys(ps), arg_tys(args)) && String.eq(ty(r), ret)) || resolves(rest, name, args, ret)
 
 def named(ss: List<&2, Sig>, +id: String) -> Bool:
   match ss:
     case Nil{}:
       False{}
-    case Sig{n, ps, r} <> rest:
+    case Sig{n, ps, r, q} <> rest:
       String.eq(n, id) || named(rest, id)
 
 def inner(t: Ty) -> Ty:
@@ -577,6 +589,144 @@ def constant(+raw: String, +ret: Ty, +loc: S.Json) -> Result<&2, &2, S.Error, Ir
       S.choose(Result<&2, &2, S.Error, Ir>, natural(raw), u => Done{ILit{raw, TInt{}, loc}}, u =>
         lit(literal(raw), loc))))
 
+# ---- postconditions: what a call makes known ----
+
+# The literals kept by both sides.
+def shared(xs: List<&2, String>, +ys: List<&2, String>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      []
+    case +h <> +t:
+      S.choose(List<&2, String>, Lint.has(ys, h), u => h <> shared(t, ys), u => shared(t, ys))
+
+# The literals this value surely contains, whatever the input: a literal
+# contains itself, a concatenation carries both sides', a branch only what
+# both arms carry, a block what its returns carry. Every other node carries
+# nothing -- the claim is only ever checked against this, so silence is safe.
+def carries(e: Ir) -> List<&2, String>:
+  match e:
+    case ILit{+text, +t, loc}:
+      S.choose(List<&2, String>, String.eq(ty(t), "String") && Bool.not(String.is_empty(text)), u => [text], u => [])
+    case IPrim{+bend, +args, t, loc}:
+      S.choose(List<&2, String>, String.eq(bend, "String.append"), u => carries(args), u => [])
+    case IArg{h, t}:
+      List.append(&2, String, carries(h), carries(t))
+    case ILet{name, val, body, loc}:
+      carries(body)
+    case IReturn{val, loc}:
+      carries(val)
+    case IBranch{test, yes, no, t, loc}:
+      shared(carries(yes), carries(no))
+    case IMaybe{on, none, some, t, loc}:
+      shared(carries(none), carries(some))
+    case _:
+      []
+
+# The literals every item of this list value surely contains: a comprehension's
+# items are its body's value.
+# ponytail: a list display and a fold carry nothing; the shapes that would need
+# it (`[a, b]`, an accumulated list) have no caller asking yet.
+def carries_each(e: Ir) -> List<&2, String>:
+  match e:
+    case IMap{item, over, body, t, loc}:
+      carries(body)
+    case ILet{name, val, body, loc}:
+      carries_each(body)
+    case IReturn{val, loc}:
+      carries_each(val)
+    case IBranch{test, yes, no, t, loc}:
+      shared(carries_each(yes), carries_each(no))
+    case IMaybe{on, none, some, t, loc}:
+      shared(carries_each(none), carries_each(some))
+    case _:
+      []
+
+def hases(xs: List<&2, String>) -> List<&2, Post>:
+  match xs:
+    case Nil{}:
+      []
+    case h <> t:
+      PHas{h} <> hases(t)
+
+def eaches(xs: List<&2, String>) -> List<&2, Post>:
+  match xs:
+    case Nil{}:
+      []
+    case h <> t:
+      PEach{h} <> eaches(t)
+
+# Every postcondition this body establishes at this result type: the truth a
+# claim is checked against (the kernel), and the claim to make (the
+# elaborator). Only the two result types a guard can consume are read.
+def sure(+body: Ir, +ret: Ty) -> List<&2, Post>:
+  S.choose(List<&2, Post>, String.eq(ty(ret), "String"), u => hases(carries(body)), u =>
+    S.choose(List<&2, Post>, String.eq(ty(ret), "List<&2, String>"), u => eaches(carries_each(body)), u => []))
+
+def pshow(p: Post) -> String:
+  match p:
+    case PHas{text}:
+      "the result contains " ++ text
+    case PEach{text}:
+      "every item of the result contains " ++ text
+
+def post_in(ps: List<&2, Post>, +p: Post) -> Bool:
+  match ps:
+    case Nil{}:
+      False{}
+    case h <> t:
+      String.eq(pshow(h), pshow(p)) || post_in(t, p)
+
+# The first claim the body does not establish, "" when every one is backed.
+def unbacked(cl: List<&2, Post>, +truth: List<&2, Post>) -> String:
+  match cl:
+    case Nil{}:
+      ""
+    case +h <> t:
+      S.choose(String, post_in(truth, h), u => unbacked(t, truth), u => pshow(h))
+
+# A module holds at most one def of a name (`fresh`), so the name decides.
+def posts_in(ss: List<&2, Sig>, +name: String) -> List<&2, Post>:
+  match ss:
+    case Nil{}:
+      []
+    case Sig{n, ps, r, q} <> rest:
+      S.choose(List<&2, Post>, String.eq(n, name), u => q, u => posts_in(rest, name))
+
+# A postcondition as a fact about the name the call's result was bound to.
+# Py.every is a fact, not a primitive, like Py.took: no contract bears it, so
+# writing it in a body is refused where it stands.
+def fact_of(p: Post, +name: String, +loc: S.Json) -> Ir:
+  match p:
+    case PHas{text}:
+      IPrim{"String.contains", IArg{IVar{name, TBad{}, loc}, IArg{ILit{text, TStr{}, loc}, IEnd{}}}, TBool{}, loc}
+    case PEach{text}:
+      IPrim{"Py.every", IArg{IVar{name, TBad{}, loc}, IArg{ILit{text, TStr{}, loc}, IEnd{}}}, TBool{}, loc}
+
+def facts_of(ps: List<&2, Post>, +name: String, +loc: S.Json) -> List<&2, Ir>:
+  match ps:
+    case Nil{}:
+      []
+    case h <> rest:
+      fact_of(h, name, loc) <> facts_of(rest, name, loc)
+
+# The one fact that survives a binder: every item of a list known to carry a
+# literal carries it, and a comprehension's item IS such an item. `over` must
+# be the very value the fact is about, by the same text the guard is read by.
+def item_of(f: Ir, +over: Ir, +item: String, +loc: S.Json) -> List<&2, Ir>:
+  match f:
+    case IPrim{+b, +fa, t, l}:
+      S.choose(List<&2, Ir>, String.eq(b, "Py.every") && String.eq(show(hd(fa), "", []), show(over, "", [])), u =>
+        [IPrim{"String.contains", IArg{IVar{item, TBad{}, loc}, IArg{hd(tl(fa)), IEnd{}}}, TBool{}, loc}], u => [])
+    case _:
+      []
+
+def items_of(fs: List<&2, Ir>, +over: Ir, +item: String, +loc: S.Json) -> List<&2, Ir>:
+  match fs:
+    case Nil{}:
+      []
+    case f <> rest:
+      List.append(&2, Ir, item_of(f, over, item, loc), items_of(rest, over, item, loc))
+
 # ---- elaborate: untrusted search ----
 
 def lookup(env: List<&2, Param>, +id: String, +loc: S.Json) -> Result<&2, &2, S.Error, Ir>:
@@ -816,7 +966,7 @@ def called(ss: List<&2, Sig>, +name: String, +args: Ir, +loc: S.Json) -> Result<
   match ss:
     case Nil{}:
       refuse(&2, Ir, loc, "no def ranked below this one takes " ++ name ++ "(" ++ arg_tys(args) ++ ")")
-    case Sig{n, ps, r} <> rest:
+    case Sig{n, ps, r, q} <> rest:
       S.choose(Result<&2, &2, S.Error, Ir>, String.eq(n, name) && String.eq(param_tys(ps), arg_tys(args)), u =>
         Done{ICall{name, args, r, loc}}, u => called(rest, name, args, loc))
 
@@ -1121,13 +1271,13 @@ def signature(+f: S.Json, +g: S.Json, +name: String) -> Result<&2, &2, S.Error, 
   do Result<&2, &2, S.Error, Sig>:
     ps : List<&2, Param> <- params(Lint.items(Lint.field(Lint.field(g, "args"), "args")), Lint.items(Lint.field(Lint.field(f, "args"), "args")))
     ret : Ty <- ann(weight(g), Lint.field(g, "returns"), Lint.field(f, "_loc"))
-    Done{Sig{name, ps, ret}}
+    Done{Sig{name, ps, ret, []}}
 
 def with_sig(s: Sig, +f: S.Json, +cs: List<&2, Contract>, +ss: List<&2, Sig>, +loc: S.Json) -> Result<&2, &2, S.Error, Fn>:
-  Sig{+name, +ps, +ret} = s
+  Sig{+name, +ps, +ret, post} = s
   do Result<&2, &2, S.Error, Fn>:
-    e : Ir <- block(weight(Lint.field(f, "body")), Lint.items(Lint.field(f, "body")), True{}, loc, ps, cs, ret, "", ss)
-    Done{Fn{name, ps, ret, Pure{}, e, loc}}
+    +e : Ir <- block(weight(Lint.field(f, "body")), Lint.items(Lint.field(f, "body")), True{}, loc, ps, cs, ret, "", ss)
+    Done{Fn{name, ps, ret, sure(e, ret), Pure{}, e, loc}}
 
 def elaborate_def(+body: S.Json, +stubs: S.Json, +cs: List<&2, Contract>, +name: String, +ss: List<&2, Sig>) -> Result<&2, &2, S.Error, Fn>:
   +f = Lint.find_def(body, name)
@@ -1253,12 +1403,17 @@ def known(e: Ir, +want: Bool) -> List<&2, Ir>:
       []
 
 # What a let makes known: `m = re.search(p, ...)` binds a match that, if any,
-# took every group p must take (Py.took is a fact, not a primitive).
-def lets(+name: String, val: Ir, +loc: S.Json) -> List<&2, Ir>:
+# took every group p must take (Py.took is a fact, not a primitive); and
+# `v = g(...)` binds a value carrying every postcondition the kernel minted
+# into g's signature. A call the ICall rule does not grant never reaches an
+# emission, so a fact read off an ungranted call cannot outlive its refusal.
+def lets(+name: String, val: Ir, +loc: S.Json, +ss: List<&2, Sig>) -> List<&2, Ir>:
   match val:
     case IPrim{+bend, args, t, l}:
       S.choose(List<&2, Ir>, String.eq(bend, "Py.search"), u =>
         [IPrim{"Py.took", IArg{IVar{name, TBad{}, loc}, IArg{hd(tl(args)), IEnd{}}}, TBool{}, loc}], u => [])
+    case ICall{+n, args, t, l}:
+      facts_of(posts_in(ss, n), name, loc)
     case _:
       []
 
@@ -1298,15 +1453,17 @@ def compiles(r: Regex.Res(Regex)) -> Bool:
       False{}
 
 # Does the fact give the guard `pre` of these arguments? Itself; or
-# `startswith(x, q)` gives `sep in x` when q holds sep; or `Py.took(m, p)` gives
-# the group `m.group(k)` asks for.
+# `startswith(x, q)` -- and `q in x`, which is how a callee's postcondition
+# arrives -- gives `sep in x` when q holds sep, sound by transitivity of
+# substring; or `Py.took(m, p)` gives the group `m.group(k)` asks for.
 def gives(f: Ir, +pre: String, +args: Ir) -> Bool:
   match f:
     case IPrim{+b, +fa, t, loc}:
       +x = String.eq(show(hd(fa), "", []), show(hd(args), "", []))
       +q = hd(tl(fa))
       (String.eq(b, pre) && String.eq(show(fa, "", []), show(args, "", []))) ||
-        (x && String.eq(pre, "String.contains") && String.eq(b, "String.starts_with") && solid(tl(fa)) && String.contains(text_of(q), text_of(hd(tl(args))))) ||
+        (x && String.eq(pre, "String.contains") && (String.eq(b, "String.starts_with") || String.eq(b, pre)) && solid(tl(fa)) &&
+          String.contains(text_of(q), text_of(hd(tl(args))))) ||
         (x && String.eq(pre, "Py.took") && String.eq(b, pre) && took(Regex.parse(text_of(q)), text_of(hd(tl(args)))))
     case _:
       False{}
@@ -1441,7 +1598,7 @@ def why(e: Ir, +pos: Pos, +env: List<&2, Param>, +facts: List<&2, Ir>, +cs: List
       +stepped = String.is_empty(acc_of(pos)) || String.eq(acc_of(pos), name) || Bool.not(has_name(env, name))
       +kept = Bool.not(has_name(env, name)) || bound(env, name, ty_of(val))
       ok = spanned(loc) && ident(name) && Bool.not(is_arg(pos)) && Bool.not(String.is_empty(ty_of(val))) && stepped && kept
-      S.choose(String, ok, u => both(why(val, PArg{}, env, facts, cs, ss), why(body, pos, Param{name, typ(val), loc} <> env, lets(name, val, loc), cs, ss)), u =>
+      S.choose(String, ok, u => both(why(val, PArg{}, env, facts, cs, ss), why(body, pos, Param{name, typ(val), loc} <> env, lets(name, val, loc, ss), cs, ss)), u =>
         "let of " ++ name ++ ": in argument position, retyped, or rebinding a captured name inside a fold step" ++ Lint.at(loc))
     case IBranch{+test, +yes, +no, +t, +loc}:
       ok = spanned(loc) && String.eq(ty_of(test), "Bool") && String.eq(ty_of(yes), ty(t)) && String.eq(ty_of(no), ty(t)) && Bool.not(String.is_empty(ty(t)))
@@ -1464,7 +1621,8 @@ def why(e: Ir, +pos: Pos, +env: List<&2, Param>, +facts: List<&2, Ir>, +cs: List
     case IMap{+item, +over, +body, +t, +loc}:
       ok = spanned(loc) && ident(item) && Bool.not(String.is_empty(ty(elem(typ(over))))) && Bool.not(String.is_empty(ty_of(body))) &&
         String.eq(ty(t), ty(TList{typ(body)}))
-      S.choose(String, ok, u => both(why(over, PArg{}, env, facts, cs, ss), why(body, PArg{}, Param{item, elem(typ(over)), loc} <> env, [], cs, ss)), u =>
+      S.choose(String, ok, u => both(why(over, PArg{}, env, facts, cs, ss),
+        why(body, PArg{}, Param{item, elem(typ(over)), loc} <> env, items_of(facts, over, item, loc), cs, ss)), u =>
         "comprehension over a non-list, or of another type" ++ Lint.at(loc))
 
 # The type every tail path returns; "" if any path does not end in IReturn.
@@ -1531,16 +1689,19 @@ def is_pure(e: Eff) -> Bool:
 # call in its body must name one of them. T1-T3 pass [], so a call is refused
 # there exactly as before.
 def verify_in(f: Fn, +ss: List<&2, Sig>, +cs: List<&2, Contract>) -> Result<&2, &2, S.Error, Fn>:
-  Fn{+name, +ps, +ret, +eff, +body, +loc} = f
+  Fn{+name, +ps, +ret, +post, +eff, +body, +loc} = f
   +bad = why(body, PTail{}, ps, [], cs, ss)
+  +loose = unbacked(post, sure(body, ret))
   S.choose(Result<&2, &2, S.Error, Fn>, Bool.not(ident(name) && idents(ps) && spanned(loc)), u =>
     refuse(&2, Fn, loc, "name or span not emittable"), u =>
     S.choose(Result<&2, &2, S.Error, Fn>, Bool.not(String.is_empty(bad)), u => fail(&2, Fn, S.Unsupported{}, loc, bad), u =>
       S.choose(Result<&2, &2, S.Error, Fn>, Bool.not(String.eq(returned(body), ty(ret))), u =>
         refuse(&2, Fn, loc, "body does not return " ++ ty(ret)), u =>
         S.choose(Result<&2, &2, S.Error, Fn>, Bool.not(distinct(helpers(body, name))), u => refuse(&2, Fn, loc, "two helper defs share a name"), u =>
-          S.choose(Result<&2, &2, S.Error, Fn>, Bool.not(is_pure(eff)), u => refuse(&2, Fn, loc, "effect is not Pure"), u =>
-            Done{Fn{name, ps, ret, eff, body, loc}})))))
+          S.choose(Result<&2, &2, S.Error, Fn>, Bool.not(String.is_empty(loose)), u =>
+            refuse(&2, Fn, loc, "the postcondition that " ++ loose ++ " is not established by this body: drop the claim, or make every path carry it"), u =>
+            S.choose(Result<&2, &2, S.Error, Fn>, Bool.not(is_pure(eff)), u => refuse(&2, Fn, loc, "effect is not Pure"), u =>
+              Done{Fn{name, ps, ret, post, eff, body, loc}}))))))
 
 def verify(f: Fn, +cs: List<&2, Contract>) -> Result<&2, &2, S.Error, Fn>:
   verify_in(f, [], cs)
@@ -1550,10 +1711,10 @@ def verify(f: Fn, +cs: List<&2, Contract>) -> Result<&2, &2, S.Error, Fn>:
 # that name, and no call could say which. The source path cannot state it
 # (`unique`), but a TypedIR is data.
 def fresh(f: Fn, +ss: List<&2, Sig>) -> Result<&2, &2, S.Error, List<&2, Sig>>:
-  Fn{+name, +ps, +ret, eff, body, +loc} = f
+  Fn{+name, +ps, +ret, +post, eff, body, +loc} = f
   S.choose(Result<&2, &2, S.Error, List<&2, Sig>>, named(ss, name), u =>
     refuse(&2, List<&2, Sig>, loc, "two defs of the module are named " ++ name), u =>
-    Done{List.append(&2, Sig, ss, [Sig{name, ps, ret}])})
+    Done{List.append(&2, Sig, ss, [Sig{name, ps, ret, post}])})
 
 def placed(r: Result<&2, &2, S.Error, Fn>) -> Bool:
   match r:
@@ -1871,7 +2032,7 @@ def prelude(cs: List<&2, Contract>, +text: String) -> String:
 
 # One def: its helpers, then the def itself, body at col 2.
 def one_def(f: Fn) -> List<&2, Def>:
-  Fn{+name, +ps, ret, eff, +body, loc} = f
+  Fn{+name, +ps, ret, post, eff, +body, loc} = f
   List.append(&2, Def, defs(body, name, ps, False{}),
     [atop("def " ++ name ++ "(" ++ sig(ps, body, "") ++ ") -> " ++ ty(ret) ++ ":\n", param_rows(ps, body, Nat.add(5n, String.length(name))),
       blk(body, name, ps, 1n, 2n, "", "", False{}))])
@@ -1887,7 +2048,7 @@ def titles(fs: List<&2, Fn>, lead: String) -> String:
   match fs:
     case Nil{}:
       ""
-    case Fn{name, ps, ret, eff, body, loc} <> t:
+    case Fn{name, ps, ret, post, eff, body, loc} <> t:
       lead ++ "`" ++ name ++ "` " ++ Lint.span(loc) ++ titles(t, ", ")
 
 # Line 1 a comment, line 2 the import, line 4 the first def: prelude, then the

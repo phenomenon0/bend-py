@@ -284,15 +284,24 @@ DEMOS = {
     # (surveyed by ast: the candidates want dicts, isinstance, Path, subprocess, sqlite3 or sets),
     # so this is the labeled composite the plan allows: two pinned real defs, each judged on its
     # own above, and a caller written here. `module` names the parts; the caller is the top of the
-    # chain and every fixture goes through it. Both calls are real: `fm_sources` as the
-    # comprehension's iterable (list[str]) and `normalize_stem` inside its body (str).
+    # chain and every fixture goes through it. All three calls are real: `fm_sources` under
+    # `keyed_sources` (list[str]), `keyed_sources` bound by the caller's let, and `normalize_stem`
+    # inside the comprehension's body (str). T5 put `keyed_sources` between the other two so one
+    # fact crosses a call; `('stem:' + s).split(':', 1)[1] == s` for every s, so the answers are
+    # the same answers, and the 200 fixtures below are unchanged.
     "source_stems": {
         "module": ["fm_sources", "normalize_stem"],
-        "caller": "def source_stems(text: str) -> list[str]:\n    return [normalize_stem(s) for s in fm_sources(text)]\n",
+        "caller": "def source_stems(text: str) -> list[str]:\n    v = keyed_sources(text)\n"
+        "    return [normalize_stem(s.split(':', 1)[1]) for s in v]\n"
+        "\ndef keyed_sources(text: str) -> list[str]:\n    return ['stem:' + s for s in fm_sources(text)]\n",
         "sig": "import re\ndef fm_sources(text: str) -> list[str]:\n    pass\n",
         "builtins": {"str": str, "list": list},
         "globals": {"re": re},
-        "wrong": ("normalize_stem(s)", "s", "the comprehension that calls nothing"),
+        "wrong": ('normalize_stem(Py.after(s, ":"))', 'Py.after(s, ":")', "the comprehension that normalizes nothing"),
+        # T5: the fact that crosses the call is one character of Python. Drop the key's colon and
+        # `keyed_sources` still type-checks, still returns list[str] -- and the caller's guarded
+        # split is granted by nothing, so the module does not emit at all.
+        "refuse": [("'stem:' + s", "'stem' + s", "the key without its colon", "Py.after is not granted by a contract")],
         "examples": [
             (("---\nsources: [a, b]\n---\nbody",), ["a", "b"]),
             (('---\ntitle: t\nsources: ["x", "y"]\n---\n',), ["x", "y"]),
@@ -312,11 +321,127 @@ DEMOS = {
             "---\nsources: -\n---",
         ],
         "generate": fm_text,
-        "c3": "tested fragment, no theorem. The module is the claim: two calls between three defs, ranked by the "
+        "c3": "tested fragment, no theorem. The module is the claim: three calls between four defs, ranked by the "
         "kernel (a callee is granted only against the defs it has already accepted, so the rank is the list "
         "position and a cycle cannot be stated). Each call is the plain Bend call; the parts' own contracts are "
         "unchanged and were judged apart above. The caller is written in this file and labeled, not mined: it "
-        "carries no reviewed source, so nothing is assumed of it beyond what the fragment already grants.",
+        "carries no reviewed source, so nothing is assumed of it beyond what the fragment already grants. One fact "
+        "crosses a call: `keyed_sources` puts every item of its result under the `stem:` key, the kernel "
+        "recomputes that from its body and mints it into the signature, and the caller's `split(':', 1)[1]` is "
+        "granted by that postcondition and by nothing else -- its own text never says the colon is there.",
+    },
+    # T5's producer, mined and judged apart. LLVM's opt-viewer names one HTML page per source
+    # file: the separators are flattened and `.html` is appended, so every path through the def
+    # carries that literal and the kernel reads one postcondition off the body. Unannotated in
+    # the source: the reviewed signature is the stub in `sig`, and a stub is types only -- there
+    # is no Python syntax for a postcondition, so the claim cannot be smuggled in through it.
+    "html_file_name": {
+        "path": Path.home()
+        / "Documents/Project/ipad-lab/tools/build-src/apple-libtapi/src/llvm/tools/opt-viewer/optrecord.py",
+        "sha256": "f8270a39f647ca17dc20a4ff76181129c31ea4a97e8b0e01c70c310302574249",
+        "sig": "def html_file_name(filename: str) -> str:\n    pass\n",
+        "builtins": {},
+        "wrong": ('String.replace(filename, "/", "_")', "filename", "translation without the '/' flattening"),
+        "examples": [
+            (("tools/opt.cpp",), "tools_opt.cpp.html"),
+            (("lib/IR/Value.h",), "lib_IR_Value.h.html"),
+            (("main",), "main.html"),
+            (("",), ".html"),
+            (("a#b",), "a_b.html"),
+            (("/",), "_.html"),
+            (("#",), "_.html"),
+        ],
+        "edges": [
+            *WS,
+            "/#",
+            "#/",
+            "//",
+            "##",
+            "a/b#c/d",
+            ".",
+            "..",
+            ".html",
+            "x.html",
+            "_",
+            "a_b",
+            " / ",
+            "\t#\x0b",
+            ALPHABET,
+            ALPHABET[::-1],
+            "/" * 40 + "x",
+        ],
+        "generate": lambda rng: (
+            "".join(
+                rng.choice(ALPHABET if rng.random() < 0.5 else "/#._ab")
+                for _ in range(rng.randrange(0, 24))
+            ),
+        ),
+        "c3": "tested fragment, no theorem. One return and no control flow: the translation rests on two primitive "
+        "contracts (str.replace/+ = String.replace/String.append on the ASCII value contract), assumed like "
+        "SOUNDNESS.md A3 and only tested here. The source has no doctests, so no law is stated for it. The kernel "
+        "reads one thing off this body beyond its type -- every path carries `.html` -- and nothing here consumes "
+        "it; `page_tail` below is what does.",
+    },
+    # T5's real-program showcase: a MINED producer, and a guard that its carried literal is the
+    # only thing granting. The caller is written here and labeled -- no corpus file calls
+    # `html_file_name` from inside the fragment (optrecord.py's own caller, `make_link`, goes
+    # through str.format) -- but the guard is the corpus's own shape: `repo_of` above writes the
+    # SAME `split('.', 1)[1]` and pays for it with a hand-written `'.' not in pid` test. Here
+    # there is no test to write. `html_file_name` puts the dot there on every path, the kernel
+    # recomputes that from the mined body and mints it into the signature, and `gives` widens
+    # `contains ".html"` to the `contains "."` the split asks for. Both controls below are
+    # one character of Python: kill the dot in the producer, or ask for a separator the claim
+    # does not hold, and nothing is emitted at all.
+    "page_tail": {
+        "module": ["html_file_name"],
+        "caller": 'def page_tail(filename: str) -> str:\n    page = html_file_name(filename)\n'
+        '    return page.split(".", 1)[1]\n',
+        "sig": "def html_file_name(filename: str) -> str:\n    pass\n",
+        "builtins": {"str": str},
+        "wrong": ('Py.after(page, ".")', "page", "the tail that never splits"),
+        "refuse": [
+            ('+ ".html"', '+ "html"', "the page name without its dot", "Py.after is not granted by a contract"),
+            ('split(".", 1)', 'split("!", 1)', "a separator the claim does not hold", "Py.after is not granted by a contract"),
+        ],
+        "examples": [
+            (("tools/opt.cpp",), "cpp.html"),
+            (("lib/IR/Value.h",), "h.html"),
+            (("main",), "html"),
+            (("",), "html"),
+            (("a#b",), "html"),
+            (("a.b.c",), "b.c.html"),
+            ((".",), ".html"),
+        ],
+        "edges": [
+            *WS,
+            "/#",
+            "#/",
+            "..",
+            ".html",
+            "x.html",
+            "a/b#c/d",
+            "a.b/c.d",
+            ".a.",
+            "a..b",
+            " . ",
+            "\t.\x0b",
+            ALPHABET,
+            ALPHABET[::-1],
+            "." * 40 + "x",
+        ],
+        "generate": lambda rng: (
+            "".join(
+                rng.choice(ALPHABET if rng.random() < 0.5 else "/#._ab")
+                for _ in range(rng.randrange(0, 24))
+            ),
+        ),
+        "c3": "tested fragment, no theorem. Two defs, one call, and one fact across it. The producer is mined and "
+        "was judged apart above; the caller is written in this file and labeled, so nothing is assumed of it "
+        "beyond what the fragment already grants. Its `split('.', 1)[1]` is the guarded Py.after contract, and "
+        "nothing in the caller's own text says a dot is there: `html_file_name` appends `.html` on every path, "
+        "the kernel recomputes that claim from the mined body (a stub carries types, not postconditions) and "
+        "mints it into the signature, and the substring widening in `gives` turns `contains \".html\"` into the "
+        "`contains \".\"` the split asks for. `repo_of` above is the same split with the test written by hand.",
     },
 }
 
@@ -359,7 +484,8 @@ def source(name, demo):
     text = "\n".join([demo["caller"]] + [pinned(part)[0] for part in demo["module"]])
     print(
         f"source   tests/translator/judge.py {name} caller written here "
-        f"(labeled composite: {len(demo['module'])} pinned defs + the caller; the module is never imported)"
+        f"(labeled composite: {len(demo['module'])} pinned def{'' if len(demo['module']) == 1 else 's'}"
+        f" + the caller; the module is never imported)"
     )
     return text, [n for n in ast.parse(text).body if isinstance(n, ast.FunctionDef) and n.name == name][0]
 
@@ -647,6 +773,14 @@ def judge(name, show):
         (work / "wrong" / "demo.bend").write_text(test, encoding="utf-8")
         wrong = sh("bun", "bend2/main.ts", str(work / "wrong" / "demo.bend"))[1]
 
+        # A postcondition control: the same module with the claim made false in the PYTHON, which
+        # the kernel must refuse outright -- an emission the caller could not have had.
+        refused = None
+        for rold, rnew, _, rerr in demo.get("refuse", []):
+            assert rold in text, "the refusal control does not apply to this source"
+            rc, out = emit("translate", work / "refuse", name, demo, text.replace(rold, rnew))
+            refused = (refused in (None, True)) and rc != 0 and rerr in out
+
         # The doctest laws: the checker decides each by computation; a falsified want must fail.
         lawful = lied = None
         if laws:
@@ -661,6 +795,7 @@ def judge(name, show):
         and (not laws or "All terms check." not in lied)
         and wrong != want
         and wrong.startswith('"')
+        and refused in (None, True)
     )
 
     c1 = (
@@ -705,7 +840,9 @@ def judge(name, show):
             print(f"  laws: {lawful[:400]}")
     print(
         f"controls              : {'ok' if controls else 'FAIL'} (injected hole rejected by C1; {what} rejected by C2"
-        + ("; falsified doctest laws rejected by the checker)" if laws else ")")
+        + ("; falsified doctest laws rejected by the checker" if laws else "")
+        + "".join(f"; {r[2]} refused by the kernel" for r in demo.get("refuse", []))
+        + ")"
     )
     for k, v in got.items():
         if (k == "check" and v != "All terms check.") or (k != "check" and v != want):

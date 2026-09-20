@@ -208,27 +208,64 @@ def steps(e: Tr.Ir) -> String:
 
 # ---- emit ----
 
+# The rewritten body is a different body, so its postconditions are recomputed
+# rather than carried: a rule that reshapes a literal must not smuggle a claim.
 def rewrite(f: Tr.Fn) -> Tr.Fn:
-  Tr.Fn{name, ps, ret, eff, body, loc} = f
-  Tr.Fn{name, ps, ret, eff, opt(body), loc}
+  Tr.Fn{name, ps, +ret, post, eff, body, loc} = f
+  +b = opt(body)
+  Tr.Fn{name, ps, ret, Tr.sure(b, ret), eff, b, loc}
+
+def rewrite_all(fs: List<&2, Tr.Fn>) -> List<&2, Tr.Fn>:
+  match fs:
+    case Nil{}:
+      []
+    case f <> t:
+      rewrite(f) <> rewrite_all(t)
 
 def log_of(f: Tr.Fn) -> String:
-  Tr.Fn{name, ps, ret, eff, body, loc} = f
+  Tr.Fn{name, ps, ret, post, eff, body, loc} = f
   steps(body)
 
-# Line 1 names this file, one line for one, so the span map's lines stand.
-def framed(f: Tr.Fn, +cs: List<&2, Tr.Contract>, +log: String) -> String:
-  Tr.Fn{+name, ps, ret, eff, body, +loc} = f
-  +text = Tr.render(Tr.Fn{name, ps, ret, eff, body, loc}, cs)
+# One log for the module, the defs in the kernel's rank order. A line names its
+# site by the Python span, so the def it came from is not in doubt.
+def logs_of(fs: List<&2, Tr.Fn>) -> String:
+  match fs:
+    case Nil{}:
+      ""
+    case f <> t:
+      log_of(f) ++ logs_of(t)
+
+# Line 1 names this file -- one line for one def or for the whole module, as
+# translate.bend's own line 1 is -- so the span map's lines stand.
+def framed(+fs: List<&2, Tr.Fn>, cs: List<&2, Tr.Contract>, +log: String) -> String:
+  +text = Tr.render_all(fs, cs)
   S.choose(String, String.is_empty(log), u => text, u =>
-    "# Optimized translation (tier 3) of Python `" ++ name ++ "` " ++ Lint.span(loc) ++ " by demos/python/optimize.bend; the rewrite log ends the file.\n" ++
+    "# Optimized translation (tier 3) of Python " ++ Tr.titles(fs, "") ++ " by demos/python/optimize.bend; the rewrite log ends the file.\n" ++
       Pair.snd(String, String, Pair.snd(String, String & String, String.partition(text, "\n"))) ++ "# rewrites: rule, Python span, grade: evidence\n" ++ log)
 
-def optimize(f: Tr.Fn, +cs: List<&2, Tr.Contract>) -> Result<&2, &2, S.Error, String>:
+# The module door. The rank is the kernel's and is recomputed on the rewritten
+# defs rather than carried, exactly as the body's own verify is: a rewrite that
+# dropped a postcondition a caller reads would be refused here, at that caller.
+def optimize_all(fs: List<&2, Tr.Fn>, +cs: List<&2, Tr.Contract>) -> Result<&2, &2, S.Error, String>:
   do Result<&2, &2, S.Error, String>:
-    +ok : Tr.Fn <- Tr.verify(f, cs)
-    better : Tr.Fn <- Tr.verify(rewrite(ok), cs)
-    Done{framed(better, cs, log_of(ok))}
+    +ok : List<&2, Tr.Fn> <- Tr.ordered(fs, cs)
+    better : List<&2, Tr.Fn> <- Tr.ordered(rewrite_all(ok), cs)
+    Done{framed(better, cs, logs_of(ok))}
+
+# One def is the module of one: `Tr.ordered` on a singleton is `Tr.verify`, and
+# `fresh` against no signatures cannot fail.
+def optimize(f: Tr.Fn, +cs: List<&2, Tr.Contract>) -> Result<&2, &2, S.Error, String>:
+  optimize_all([f], cs)
+
+# An empty `name` is the whole module, as translate.bend's `whole` is.
+def whole(+m: S.Module, +g: S.Module, +on: List<&2, Tr.Contract>, +name: String) -> Result<&2, &2, S.Error, String>:
+  S.choose(Result<&2, &2, S.Error, String>, String.is_empty(name), u =>
+    do Result<&2, &2, S.Error, String>:
+      fs : List<&2, Tr.Fn> <- Tr.elaborate_all(m, g, on)
+      optimize_all(fs, on), u =>
+    do Result<&2, &2, S.Error, String>:
+      f : Tr.Fn <- Tr.elaborate(m, g, on, name)
+      optimize(f, on))
 
 # translate.bend's pipeline, `optimize` in place of `emit`.
 def optimize_as(source: String, sig: String, cs: List<&2, Tr.Contract>, +name: String) -> Result<&2, &2, S.Error, String>:
@@ -238,8 +275,7 @@ def optimize_as(source: String, sig: String, cs: List<&2, Tr.Contract>, +name: S
     ss : List<&2, S.Tok> <- L.lex(sig)
     +g : S.Module <- P.parse(ss)
     +on : List<&2, Tr.Contract> <- Done{Tr.scoped(cs, Tr.imports_re(Lint.items(Lint.field(S.module(g), "body"))))}
-    f : Tr.Fn <- Tr.elaborate(m, g, on, name)
-    optimize(f, on)
+    whole(m, g, on, name)
 
 # PY_SOURCE, PY_DEF and PY_SIG as translate.bend's main.
 def main() -> IO(Unit):

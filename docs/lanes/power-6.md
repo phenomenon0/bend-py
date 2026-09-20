@@ -267,3 +267,119 @@ TopK, and the library's first serious GPU (`!`) benchmark. It is also the lane
 where the F32-key question this one refused comes back for real, since a
 distance genuinely is a float and there is no 2^20 quantum that is obviously
 right for it.
+
+---
+
+## Added when `postings` was benched (2026-09-20, after this lane closed)
+
+This lane shipped `power/postings.bend` without a bench of its own. The two
+rows above are both `bm25`, and `bm25`'s query sweeps every document — so it
+never calls `and`, `or`, `andnot`, `not`, `optimize`, `densify` or `sparsify`.
+The entire public surface of the set module, and the container decision the
+module exists to make, went out unmeasured. That is an omission rather than a
+decision, and it is closed here:
+
+| bench | what it runs | C | bend 1T | bend 16T | 1T/C | 1T→16T |
+|---|---|---:|---:|---:|---:|---:|
+| `postings` | 4,096 rounds, 8 sets built and 4 operations a round | 0.10 | 0.52 | 0.47 | 5.0x | 1.1x |
+| `postings_par` | 2^8 shards of 32 rounds, disjoint seeds | 0.19 | 1.04 | 0.20 | 5.5x | 5.2x |
+
+Checksums 22904446 and 2655450973, identical on C, 1T and 16T.
+
+> `postings_par`'s three timings were taken before its fold was changed to the
+> suite mixer (see the counterexample section below); the checksum beside them
+> is the post-change one. The mixer is two integer operations per internal node
+> across 255 nodes against ~8,000 rounds of set algebra, so it should not move
+> them — but *should not* is an expectation, and these three numbers stand as
+> provisional until the gate's own table prints them on a quiet machine. The
+> `postings` row is unaffected: it has no tree.
+
+A 65,536-document
+universe; the four operations are chosen to be the four *distinct paths* rather
+than four calls — sparse∧sparse is one merge at mode 2, dense∨dense is Bitset's
+cell loop, sparse∧dense is the sieve, sparse∨dense is the paint. `andnot` is not
+a fifth path: it is the same merge at mode 4, the same sieve at `want=False` and
+the same paint through `off`. 512 ids is under the 65,536/32 = 2,048 threshold
+and 4,096 is over it, so `optimize` takes its sparse arm four times a round and
+its dense arm four times — the Roaring deviation above executes here rather than
+being assumed.
+
+`postings` is flat across threads by construction, like `bm25`: one sequential
+round loop with nothing to fork. `postings_par` is the scaling number, and its
+shape is the one this lane already predicted — a `Set` holds an array, an array
+has one owner, so no shard can share a set. 5.2x on 16 threads.
+
+### The checksum that agreed three ways and was still wrong
+
+The first `postings_par` run returned **exactly 0**, agreeing on C, 1T and 16T.
+Three-way agreement is what the harness treats as proof a row may be timed. Here
+it was three implementations agreeing on a degenerate answer.
+
+The seed generator was `(s+1) * 2654435761 ^ (s >> 3)`, and the three set
+parameters all read its low six bits. `2654435761 mod 64 = 49`, and `512 * 49`
+is a multiple of 64 — so across a 512-seed step the multiply contributes nothing
+to those bits, and the xor term shifts by exactly 64. The low six bits therefore
+had **period 512 in the seed**. A shard spans 256 seeds, so shard `lo` and shard
+`lo+2` built byte-identical sets, and a depth-8 tree of two alternating values
+walks its low bits out: 0xC0000000 at depth 7, 0 at depth 8.
+
+Two consequences, and the second is the uncomfortable one:
+
+- The parallel bench was measuring 2 distinct workloads replicated 128 times.
+- **The serial row had the same flaw and was already timed** — 64 distinct rounds
+  repeated 64 times, producing a healthy nonzero checksum the entire time. It was
+  about to be reported in good faith. The fork tree is the only reason it
+  surfaced; a flat fold absorbs a repeated shard silently. The parallel bench
+  accidentally audited the serial one.
+
+Fixed by folding the high half down before masking (`h ^ (h >> 16)`) and by
+giving the three parameters their own bit fields — `st` was literally `bg + 1`
+before, three overlapping reads of the same six bits, so only 64 set shapes
+existed in the whole design regardless of the period. Measured after: **28,853
+distinct (start, sparse stride, dense stride) triples over 65,536 seeds**, and
+the id-range bound the bench header claims verified rather than argued — widest
+sparse id 32,767, widest dense id 32,823, universe 65,536.
+
+The portable half is in POWER.md, under the rule it qualifies: agreement across
+backends proves the backends match, not that the bench is non-degenerate; and
+the constructive form is to count the distinct inputs a generator produces and
+state the number, because "28,853 distinct triples over 65,536 seeds" is
+checkable where "the checksums agree" is not.
+
+### A counterexample to the tree-fold trap above
+
+That section states the trap as "every leaf comes out congruent mod 32 to every
+other... which is to say, always, for the way every bench in this suite computes
+a checksum". **Always is too strong, and this bench is the counterexample.**
+Probed over its 256 leaves: 256 distinct values covering **all 32 residues mod
+32**, and the plain `a*31 + b` combine gave a sound, non-collapsing 94643560.
+
+The reason is worth having, because it draws the actual boundary. A leaf value
+mod 32 is an alternating sum of the ids folded into it, so it is set by the
+*length* of the fold. `bm25_par`'s leaves rank a fixed 8 entries each; these
+leaves fold four answers whose sizes vary shard to shard, because `and_ss` and
+`and_sd` emit variable-length results. So the trap is a property of
+**fixed-length leaf folds**, not of `·31 + x` folds generally.
+
+`postings_par` mixes anyway — `rot7(a*31 + x)`, the suite's existing mixer. Not
+as a bug fix: the plain combine was sound. Because every other `_par` twin
+mixes, and because the residue spread here is a property of the seed draw rather
+than something the bench controls, and leaning a checksum on an incidental
+measurement is the same mistake as the one above in a better mood. Verified with
+this lane's own check — perturbing leaf 137 by +1, +32, +1024 and +2^31 each
+changes the result.
+
+### The 5.0x is the build, not the algebra
+
+Both rows sit near 5x against C, well off `bm25`'s 3.4x, and the difference is
+not in the set operations. The Bend side grows a `Vec` by push through
+`Postings.add`, paying doubling reallocations and copies for every one of the 8
+sets a round; the C twin writes into a single preallocated array because it
+knows the size up front. The bench builds per operand on both sides deliberately
+— a set has one owner, so a round *cannot* reuse one, and letting C reuse them
+would time a different program.
+
+That is a real API gap rather than a bench artifact: `postings` has no bulk
+builder. A `from_sorted` taking a count would close most of it. Logged as future
+work rather than added speculatively — it should arrive as a consumer's request,
+which is this lane's own standard for new surface.

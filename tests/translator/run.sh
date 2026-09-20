@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # `run.sh [prefix]`. Four lanes per specimen: strict check, interpreter, emitted JS, C; then the judge
-# (CPython oracle vs the emitted Bend for normalize_stem, repo_of, the first_dash fixture, fm_sources and the
-# source_stems module, the same four lanes, claims C1/C2/C3 apart; first_dash also states its closed doctests as
-# checked laws), the four defs each with --optimize: optimize.bend's file is the faithful one byte for byte,
-# or (repo_of) judged again, C1-C4.
+# (CPython oracle vs the emitted Bend for normalize_stem, repo_of, the first_dash fixture, fm_sources, html_file_name
+# and the source_stems and page_tail modules, the same four lanes, claims C1/C2/C3 apart; first_dash also states its
+# closed doctests as checked laws), the five defs and the two modules each with --optimize: optimize.bend's file is
+# the faithful one byte for byte, or (repo_of) judged again, C1-C4.
 # C5 times the rewrite and is not a gate: `judge.py --demo repo_of --optimize --bench`.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
@@ -110,10 +110,8 @@ for t in tests/translator/*.bend; do
     fi
   done
 done
-for demo in normalize_stem repo_of first_dash fm_sources; do
+for demo in normalize_stem repo_of first_dash fm_sources source_stems html_file_name page_tail; do
   python3 tests/translator/judge.py --demo "$demo" --optimize || fail=$((fail + 1))
 done
-# The module: a program, not a def. optimize.bend still takes one def (PY_DEF), so no --optimize.
-python3 tests/translator/judge.py --demo source_stems || fail=$((fail + 1))
 printf '\nTranslator PASS: %d, FAIL: %d\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
