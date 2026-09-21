@@ -38,10 +38,9 @@ One bundle, four extractable seams.
    headers are carried here (see CORPUS.md).
 4. ✅ **Translator tour page** — `tour/index.html` (single static file, captured
    live from the lane: the checked module, the emitted Bend, the refusals).
-5. ⏳ **Name/visibility** — repo `bend-python` (working name). Public only on
-   the operator's word.
-6. ⏳ Two upstream `bend.ts` bugs found during the 2.0.17 sync → file as issues
-   against bendlang/bend (separate, courteous act).
+5. ✅ **Name/visibility** — **Bend-Py**; repo `phenomenon0/bend-py`, public
+   (2026-09-21, operator's word).
+6. ✅ Two upstream `bend.ts` bugs filed: bendlang/bend#914, #915.
 
 ## Versioning
 
