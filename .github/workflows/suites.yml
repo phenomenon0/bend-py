@@ -1,0 +1,68 @@
+# The package's suites against the Bend commit in BEND_PIN (./setup.sh fetches it):
+# translator, lint, power and vm, one job each so a slow suite hides no other, each
+# with CPython 3.11.15 as the oracle ($PY_ORACLE) and clang 19 (#embed) for the C lane.
+# The VM and translator fuzzers run a short, non-gating sample after their suite.
+# Skipped: the translator's mined demos (their sources live in the trees they were
+# mined from; judge.py reports them SKIP) and tests/parser (it needs the external
+# corpus, tests/parser/CORPUS.md).
+name: suites
+
+on: [push, pull_request]
+
+jobs:
+  suite:
+    name: ${{ matrix.suite }}
+    # Pinned, not ubuntu-latest: apt.llvm.org's script below names the release.
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {suite: translator, run: bash tests/translator/run.sh, fuzz: python3 tests/translator/fuzz.py --n 50, minutes: 120}
+          - {suite: lint, run: bash tests/lint/run.sh, fuzz: '', minutes: 60}
+          - {suite: power, run: bash tests/power/run.sh, fuzz: '', minutes: 120}
+          # The battery builds one large program (vm.bend) in every lane.
+          - {suite: vm, run: bash tests/vm/run.sh, fuzz: python3 python/fuzz_vm.py --n 50, minutes: 240}
+    timeout-minutes: ${{ matrix.minutes }}
+    env:
+      BEND_NO_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      # Bend's C output needs clang 19 for #embed (and its clang pragmas); noble ships 18.
+      - name: clang 19
+        run: |
+          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
+          sudo bash llvm.sh 19
+          sudo apt-get install -y ripgrep
+          echo "CC=clang-19" >> "$GITHUB_ENV"
+      - name: clang has #embed
+        run: |
+          printf '%s\n' 'static const char s[] = {' '#embed __FILE__' ', 0};' 'int main(void) { return s[0] != 115; }' > embed.c
+          clang-19 -std=c23 embed.c -o embed && ./embed
+
+      # The oracle is exact: the suites refuse any other version.
+      - uses: actions/setup-python@v5
+        id: py
+        with:
+          python-version: '3.11.15'
+      - name: oracle
+        run: |
+          echo "PY_ORACLE=${{ steps.py.outputs.python-path }}" >> "$GITHUB_ENV"
+          python3 -c 'import platform, sys; print(sys.executable, platform.python_version()); assert platform.python_version() == "3.11.15"'
+      - name: numpy, scipy (tests/power's assign oracle)
+        if: matrix.suite == 'power'
+        run: python3 -m pip install numpy scipy
+
+      - name: setup
+        run: ./setup.sh
+
+      - name: ${{ matrix.suite }}
+        run: ${{ matrix.run }}
+
+      - name: ${{ matrix.suite }} fuzz (sample, not gating)
+        if: matrix.fuzz != ''
+        continue-on-error: true
+        run: ${{ matrix.fuzz }}
