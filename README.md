@@ -14,7 +14,7 @@
 | layer | what | evidence |
 |---|---|---|
 | `python/parser.bend` | CPython-3.11-exact parser (lexer, unicode tables, f-strings) producing CPython's `ast` — field order and spans | corpus at ceiling: 8,466/8,466 project files, 731/731 stdlib, 0 structural + 0 location diffs vs `ast.parse`; `tests/parser` 108 groups |
-| `python/translate.bend` | Python → Bend, tiers T1–T4 (one def → a whole module with calls); untrusted elaboration → **verify kernel** → emit; module calls granted by a kernel-computed rank | `tests/translator` 32 groups; five judge demos across four lanes with CPython as the oracle and byte-identical emission pins; two demos mined from a real project, sha256-pinned |
+| `python/translate.bend` | Python → Bend, tiers T1–T4 (one def → a whole module with calls); untrusted elaboration → **verify kernel** → emit; module calls granted by a kernel-computed rank; `if`/`else` joins | `tests/translator` 32 groups; five judge demos across four lanes with CPython as the oracle and byte-identical emission pins; two demos mined from a real project, sha256-pinned |
 | `python/lint.bend` | L1–L4 safety kernels: imports, purity, totality, match coverage — claims are forgeable data, one bad entry refutes all | `tests/lint` 76 groups; semantics cross-check against CPython |
 | `python/optimize.bend` | proof-carrying rewrites: faithful output stays byte-identical, every refusal is logged with its span | rule #1 `hoist_append`; C-lane 1.57× on the `repo_of` demo |
 | `python/vm.bend` | the fallback tier: the house parser, then bytecode, then a stack VM; ints, bools, None, strings (escapes, `+`, `*`, ordering, `len`, indexing, slicing), `def`/recursion, `if`/`while`, `print` | `tests/vm`: 53 checks on four lanes plus refusal controls; `python/fuzz_vm.py`: 1,200 generated programs against CPython with zero findings |
@@ -23,7 +23,7 @@
 ## The method (why the numbers mean something)
 
 - **Oracle differential** — CPython 3.11.15 is the reference for structure, locations *and* execution.
-- **Generated, not just curated** — the VM's fuzzer checks its contract on random programs: exit 0 means CPython's exact bytes, a refusal is the VM's own, and every lane agrees. It found a miscompile and three wrong refusals that no fixture reached.
+- **Generated, not just curated** — both tiers have a differential fuzzer. The translator's generates typed modules and holds every emission to C1 and C2 on generated calls; a module it refuses is counted by diagnostic, so the refusal table ranks the fragment's gaps. The first run found no soundness hole in 222 emitted modules, and ranked `if`/`else` joins as the top gap (17% of modules); with joins in, 806 of 900 modules translate, all holding C1 and C2. The VM's fuzzer found a miscompile and three wrong refusals that no fixture reached.
 - **Trust zones** — elaboration is untrusted; the kernel recomputes every claim from the IR alone; emission happens only after verification.
 - **Refusals are positioned** (`call g(...) is granted by no def ranked below at 2:11`) and are the design, not the failure.
 - **Four lanes per specimen** — strict check, interpreter, emitted JS, emitted C — plus byte-identical emission pins.
@@ -52,6 +52,7 @@ the 40 in-repo items are the portable result.
 ./setup.sh                          # ../bend if it sits at BEND_PIN, else fetches the pin into .bend/
 bash tests/translator/run.sh        # or tests/vm, tests/lint, tests/power, tests/parser
 python3 python/fuzz_vm.py --n 300   # the VM's differential fuzzer (after tests/vm has built it)
+python3 tests/translator/fuzz.py    # the translator's: generated modules, C1 + C2 against CPython
 ```
 
 `BEND_DIR=/path/to/bend ./setup.sh` uses your own checkout; off the pin it warns,

@@ -1104,9 +1104,67 @@ def no_match(+j: S.Json, +env: List<&2, Param>) -> String:
     String.eq(ty(type_in(env, id)), ty(TMaybe{TMatch{}}))
   S.choose(String, ok, u => id, u => "")
 
+# The last statement of a chain; JNull for an empty one.
+def last_stmt(+js: S.Json) -> S.Json:
+  match js:
+    case S.JItem{+h, +t}:
+      S.choose(S.Json, Lint.is_empty(S.JArr{t}), u => h, u => last_stmt(t))
+    case _:
+      S.JNull{}
+
+# Every path through the statements ends in `return` or `break`, read off the
+# syntax: the last statement is one, or an `if` whose two arms both end so.
+# S.choose, not `||`/`&&`: those are strict, and taking both recursive calls
+# at every level would make this exponential in the fuel.
+def ends(fuel: Nat, +js: S.Json) -> Bool:
+  match fuel:
+    case 0n:
+      False{}
+    case 1n++p:
+      +s = last_stmt(js)
+      +tag = Lint.tag_of(s)
+      S.choose(Bool, String.eq(tag, "Return") || String.eq(tag, "Break"), u => True{}, u =>
+        S.choose(Bool, String.eq(tag, "If"), u =>
+          S.choose(Bool, ends(p, Lint.items(Lint.field(s, "body"))), u => ends(p, Lint.items(Lint.field(s, "orelse"))), u => False{}), u =>
+          False{}))
+
+# The one name the arms of an `if` assign: "" when none, "?" when several.
+def one_name(ns: List<&2, String>, +got: String) -> String:
+  match ns:
+    case Nil{}:
+      got
+    case +n <> +t:
+      S.choose(String, String.eq(got, "") || String.eq(got, n), u => one_name(t, n), u => "?")
+
 def falls(bad: Bool, +t: S.Json) -> Result<&2, &2, S.Error, Unit>:
   S.choose(Result<&2, &2, S.Error, Unit>, bad, u =>
     refuse(&2, Unit, Lint.field(Lint.first(t), "_loc"), "statement after an if that falls through inside a loop is outside the fragment"), u => Done{Unit{}})
+
+# The arms of a join give its name one type, and bind it on both paths.
+def same_ty(+yes: Ir, +no: Ir, +x: String, +loc: S.Json) -> Result<&2, &2, S.Error, Unit>:
+  S.choose(Result<&2, &2, S.Error, Unit>, String.is_empty(ty(typ(yes))) || String.is_empty(ty(typ(no))), u =>
+    refuse(&2, Unit, loc, "if: " ++ x ++ " is unbound after the if on the path that does not assign it"), u =>
+    S.choose(Result<&2, &2, S.Error, Unit>, String.eq(ty(typ(yes)), ty(typ(no))), u => Done{Unit{}}, u =>
+      refuse(&2, Unit, loc, "if: the arms give " ++ x ++ " two types, " ++ ty(typ(yes)) ++ " and " ++ ty(typ(no)))))
+
+# The name an IVar reads; "" for anything else.
+def var_name(+e: Ir) -> String:
+  match e:
+    case IVar{name, t, loc}:
+      name
+    case _:
+      ""
+
+# An arm `x = e` of a join elaborates to `let x = e in x`, which is e. Only
+# that shape reduces: an arm of several statements keeps its lets, and the
+# kernel refuses a let in argument position. Untrusted, like all elaboration:
+# the kernel recomputes the IR it produces.
+def unlet(e: Ir) -> Ir:
+  match e:
+    case ILet{+name, +val, +body, +loc}:
+      S.choose(Ir, String.eq(var_name(body), name), u => val, u => ILet{name, val, body, loc})
+    case _:
+      e
 
 def must_bool(+e: Ir) -> Result<&2, &2, S.Error, Unit>:
   S.choose(Result<&2, &2, S.Error, Unit>, String.eq(ty_of(e), "Bool"), u => Done{Unit{}}, u =>
@@ -1114,7 +1172,12 @@ def must_bool(+e: Ir) -> Result<&2, &2, S.Error, Unit>:
 
 # Statements. `acc` is "" in a function body, where every path must end in one
 # `return e` (falling off the end, an implicit None, is refused) and the
-# statements after an `if` are its else-continuation. Inside a `for` body `acc`
+# statements after an `if` are its else-continuation -- unless an arm falls
+# through: then the `if` is a join, `x = (arm yes) if c else (arm no)`, each arm
+# a block whose accumulator is the one name x the arms assign (so it yields x
+# as a fold step yields its accumulator), and the statements after it run once,
+# with x bound. An arm with no statement for x yields x as bound before the
+# `if`; unbound there, it is refused, as CPython raises there. Inside a `for` body `acc`
 # names the accumulator: a path ends by falling off (the step's value is the
 # accumulator) or by `break`; an `if` must then be the last statement, unless
 # its arm always stops. A loop that returns has no accumulator of the user's:
@@ -1138,6 +1201,7 @@ def block(fuel: Nat, xs: S.Json, first: Bool, +near: S.Json, +env: List<&2, Para
       +nx = no_match(Lint.field(h, "test"), env)
       +r = "ret_" ++ Nat.show(Lint.line(loc)) ++ "_" ++ Nat.show(Lint.col(loc))
       +rt = {TMaybe{ret} : Ty}
+      +j = one_name(List.append(&2, String, Lint.binds(Lint.field(h, "body")), Lint.binds(Lint.field(h, "orelse"))), "")
       S.choose(Result<&2, &2, S.Error, Ir>, first && docstring(h), u => block(left, t, False{}, near, env, cs, ret, acc, ss), u =>
         S.choose(Result<&2, &2, S.Error, Ir>, String.eq(tag, "Return") && Bool.not(Lint.is_null(val)), u =>
             S.choose(Result<&2, &2, S.Error, Ir>, Bool.not(last), u => refuse(&2, Ir, Lint.field(Lint.first(t), "_loc"), "statement after return"), u =>
@@ -1157,6 +1221,17 @@ def block(fuel: Nat, xs: S.Json, first: Bool, +near: S.Json, +env: List<&2, Para
                 ok : Unit <- falls(loop && Bool.not(last) && Bool.not(stops_all(none)), t)
                 some : Ir <- block(left, chain(Lint.items(Lint.field(h, "orelse")), t), False{}, loc, Param{nx, TMatch{}, loc} <> env, cs, ret, acc, ss)
                 Done{IMaybe{nx, none, some, typ(none), loc}}, u =>
+            S.choose(Result<&2, &2, S.Error, Ir>, String.eq(tag, "If") && Bool.not(ends(left, body)) && Bool.not(loop && last), u =>
+              S.choose(Result<&2, &2, S.Error, Ir>, String.eq(j, "") || String.eq(j, "?") || under(S.JItem{h, S.JEnd{}}, "Return", "") || under(S.JItem{h, S.JEnd{}}, "Break", ""), u =>
+                refuse(&2, Ir, loc, "if: an arm that falls through joins exactly one name the arms assign, with no return or break inside"), u =>
+                do Result<&2, &2, S.Error, Ir>:
+                  +c : Ir <- expr(weight(Lint.field(h, "test")), Lint.field(h, "test"), env, cs, ret, ss)
+                  ok : Unit <- must_bool(c)
+                  +yes : Ir <- block(left, body, False{}, loc, env, cs, ret, j, ss)
+                  +no : Ir <- block(left, Lint.items(Lint.field(h, "orelse")), False{}, loc, env, cs, ret, j, ss)
+                  ok : Unit <- same_ty(yes, no, j, loc)
+                  k : Ir <- block(left, t, False{}, loc, Param{j, typ(yes), loc} <> env, cs, ret, acc, ss)
+                  Done{ILet{j, IBranch{c, unlet(yes), unlet(no), typ(yes), loc}, k, loc}}), u =>
             S.choose(Result<&2, &2, S.Error, Ir>, String.eq(tag, "If"), u =>
                 do Result<&2, &2, S.Error, Ir>:
                   +c : Ir <- expr(weight(Lint.field(h, "test")), Lint.field(h, "test"), env, cs, ret, ss)
@@ -1188,7 +1263,7 @@ def block(fuel: Nat, xs: S.Json, first: Bool, +near: S.Json, +env: List<&2, Para
                       k : Ir <- block(left, t, False{}, loc, env, cs, ret, acc, ss)
                       Done{ILet{a, IFold{x, over, a, IVar{a, type_in(env, a), loc}, step, type_in(env, a), loc}, k, loc}}))), u =>
                 S.choose(Result<&2, &2, S.Error, Ir>, String.eq(tag, "Break") && loop && last, u => Done{IStop{IVar{acc, type_in(env, acc), loc}, loc}}, u =>
-                  refuse(&2, Ir, loc, "outside the fragment: statement " ++ tag))))))))
+                  refuse(&2, Ir, loc, "outside the fragment: statement " ++ tag)))))))))
     case 1n+p _:
       S.choose(Result<&2, &2, S.Error, Ir>, String.eq(acc, ""), u =>
         refuse(&2, Ir, near, "no return: falling off the end is outside the fragment"), u =>
