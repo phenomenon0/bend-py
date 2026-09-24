@@ -162,7 +162,8 @@ def ty(t: Ty) -> String:
     case TList{of}:
       "List<&2, " ++ ty(of) ++ ">"
     case TMaybe{of}:
-      "Maybe<&2, " ++ ty(of) ++ ">"
+      +o = ty(of)
+      S.choose(String, String.is_empty(o), u => "None", u => "Maybe<&2, " ++ o ++ ">")
     case TMatch{}:
       "Py.Match"
     case TBad{}:
@@ -580,12 +581,16 @@ def is_maybe(t: Ty) -> Bool:
       False{}
 
 # `None` has no type of its own in this fragment: it takes the declared return
-# type, which must be Optional (repo_of's accumulator is the value it returns).
+# type when that is Optional (repo_of's accumulator is the value it returns).
+# Elsewhere it is Optional of nothing yet (spelled `None`): an argument of a
+# call takes the parameter's Optional type there (`fit`), and anywhere else
+# the placeholder is refused -- by the kernel itself, whose `lit_ok` grants
+# `None` only at an Optional with a payload type.
 def constant(+raw: String, +ret: Ty, +loc: S.Json) -> Result<&2, &2, S.Error, Ir>:
   S.choose(Result<&2, &2, S.Error, Ir>, String.eq(raw, "True") || String.eq(raw, "False"), u => Done{ILit{raw, TBool{}, loc}}, u =>
     S.choose(Result<&2, &2, S.Error, Ir>, String.eq(raw, "None"), u =>
       S.choose(Result<&2, &2, S.Error, Ir>, is_maybe(ret), u => Done{ILit{"None", ret, loc}}, u =>
-        refuse(&2, Ir, loc, "None outside an Optional return type")), u =>
+        Done{ILit{"None", TMaybe{TBad{}}, loc}}), u =>
       S.choose(Result<&2, &2, S.Error, Ir>, natural(raw), u => Done{ILit{raw, TInt{}, loc}}, u =>
         lit(literal(raw), loc))))
 
@@ -783,6 +788,23 @@ def none_test(+j: S.Json, +op: String) -> String:
     is_const(Lint.first(Lint.items(Lint.field(j, "comparators"))), "None")
   S.choose(String, ok, u => N.string(Lint.field(l, "id")), u => "")
 
+# The Optional name an `if` tests for None, "" if none: `not X` on a match (X
+# is None, since a match is always truthy), or `X is None` on any Optional
+# name. Its else-side sees X narrowed to the payload.
+def no_match(+j: S.Json, +env: List<&2, Param>) -> String:
+  +x = Lint.field(j, "operand")
+  +id = N.string(Lint.field(x, "id"))
+  +isn = none_test(j, "Is")
+  ok = String.eq(Lint.tag_of(j), "UnaryOp") && String.eq(Lint.tag_of(Lint.field(j, "op")), "Not") && String.eq(Lint.tag_of(x), "Name") &&
+    String.eq(ty(type_in(env, id)), ty(TMaybe{TMatch{}}))
+  S.choose(String, ok, u => id, u =>
+    S.choose(String, Bool.not(String.is_empty(isn)) && is_maybe(type_in(env, isn)), u => isn, u => ""))
+
+# `X is not None` on an Optional name: the `if` body sees X narrowed.
+def some_test(+j: S.Json, +env: List<&2, Param>) -> String:
+  +x = none_test(j, "IsNot")
+  S.choose(String, Bool.not(String.is_empty(x)) && is_maybe(type_in(env, x)), u => x, u => "")
+
 # `X is None or E` / `X is not None and E`: the name X that E may read narrowed
 # to its payload (E runs only where X is not None), else "".
 def narrow(+j: S.Json) -> String:
@@ -959,16 +981,35 @@ def cut(+j: S.Json, +kids: Ir, +cs: List<&2, Contract>, +loc: S.Json) -> Result<
       grant(cs, d, tl(tl(kids)), "[:-k]", loc), u =>
     grant(cs, hd(kids), tl(kids), S.choose(String, lo, u => "[i:]", u => "[:-k]"), loc))
 
+# An argument at its parameter's type, as Python passes it: itself when the
+# types agree; at an Optional parameter, `None` typed there, or a value of the
+# payload type as Some{value}. Anything else is left as it is, and the
+# signature does not match. The IR says Some and None outright, so the kernel
+# checks each with the rules it has.
+def fit(+e: Ir, +want: Ty) -> Ir:
+  S.choose(Ir, String.eq(ty_of(e), ty(want)), u => e, u =>
+    S.choose(Ir, is_maybe(want) && String.eq(ty_of(e), "None"), u => ILit{"None", want, own_loc(e)}, u =>
+      S.choose(Ir, is_maybe(want) && String.eq(ty(inner(want)), ty_of(e)), u => ISome{e, want, own_loc(e)}, u => e)))
+
+def fits(+args: Ir, ps: List<&2, Param>) -> Ir:
+  match args ps:
+    case IArg{+h, +t} Con{Param{n, +pt, l}, pr}:
+      IArg{fit(h, pt), fits(t, pr)}
+    case _ _:
+      args
+
 # The call node, typed at the callee's declared result: the elaborator picks
-# the signature whose parameter types the arguments match, and the kernel
-# recomputes that choice. A name no held signature bears never gets here.
+# the signature whose parameter types the arguments match (after `fit`), and
+# the kernel recomputes that choice. A name no held signature bears never
+# gets here.
 def called(ss: List<&2, Sig>, +name: String, +args: Ir, +loc: S.Json) -> Result<&2, &2, S.Error, Ir>:
   match ss:
     case Nil{}:
       refuse(&2, Ir, loc, "no def ranked below this one takes " ++ name ++ "(" ++ arg_tys(args) ++ ")")
-    case Sig{n, ps, r, q} <> rest:
-      S.choose(Result<&2, &2, S.Error, Ir>, String.eq(n, name) && String.eq(param_tys(ps), arg_tys(args)), u =>
-        Done{ICall{name, args, r, loc}}, u => called(rest, name, args, loc))
+    case Sig{n, +ps, r, q} <> rest:
+      +fitted = fits(args, ps)
+      S.choose(Result<&2, &2, S.Error, Ir>, String.eq(n, name) && String.eq(param_tys(ps), arg_tys(fitted)), u =>
+        Done{ICall{name, fitted, r, loc}}, u => called(rest, name, args, loc))
 
 # One node from its elaborated subexpressions `kids`. Not recursive.
 def build(+j: S.Json, +kids: Ir, +env: List<&2, Param>, +cs: List<&2, Contract>, +ret: Ty, +ss: List<&2, Sig>) -> Result<&2, &2, S.Error, Ir>:
@@ -1096,14 +1137,6 @@ def under(j: S.Json, +tag: String, +id: String) -> Bool:
     case _:
       False{}
 
-# `not X` on an Optional match: X is None, since a match is always truthy.
-def no_match(+j: S.Json, +env: List<&2, Param>) -> String:
-  +x = Lint.field(j, "operand")
-  +id = N.string(Lint.field(x, "id"))
-  ok = String.eq(Lint.tag_of(j), "UnaryOp") && String.eq(Lint.tag_of(Lint.field(j, "op")), "Not") && String.eq(Lint.tag_of(x), "Name") &&
-    String.eq(ty(type_in(env, id)), ty(TMaybe{TMatch{}}))
-  S.choose(String, ok, u => id, u => "")
-
 # The last statement of a chain; JNull for an empty one.
 def last_stmt(+js: S.Json) -> S.Json:
   match js:
@@ -1199,6 +1232,7 @@ def block(fuel: Nat, xs: S.Json, first: Bool, +near: S.Json, +env: List<&2, Para
       +body = Lint.items(Lint.field(h, "body"))
       +a = accs(Lint.binds(Lint.field(h, "body")), env, "")
       +nx = no_match(Lint.field(h, "test"), env)
+      +sx = some_test(Lint.field(h, "test"), env)
       +r = "ret_" ++ Nat.show(Lint.line(loc)) ++ "_" ++ Nat.show(Lint.col(loc))
       +rt = {TMaybe{ret} : Ty}
       +j = one_name(List.append(&2, String, Lint.binds(Lint.field(h, "body")), Lint.binds(Lint.field(h, "orelse"))), "")
@@ -1219,8 +1253,14 @@ def block(fuel: Nat, xs: S.Json, first: Bool, +near: S.Json, +env: List<&2, Para
               do Result<&2, &2, S.Error, Ir>:
                 +none : Ir <- block(left, body, False{}, loc, env, cs, ret, acc, ss)
                 ok : Unit <- falls(loop && Bool.not(last) && Bool.not(stops_all(none)), t)
-                some : Ir <- block(left, chain(Lint.items(Lint.field(h, "orelse")), t), False{}, loc, Param{nx, TMatch{}, loc} <> env, cs, ret, acc, ss)
+                some : Ir <- block(left, chain(Lint.items(Lint.field(h, "orelse")), t), False{}, loc, Param{nx, inner(type_in(env, nx)), loc} <> env, cs, ret, acc, ss)
                 Done{IMaybe{nx, none, some, typ(none), loc}}, u =>
+            S.choose(Result<&2, &2, S.Error, Ir>, String.eq(tag, "If") && Bool.not(String.is_empty(sx)), u =>
+              do Result<&2, &2, S.Error, Ir>:
+                +some : Ir <- block(left, body, False{}, loc, Param{sx, inner(type_in(env, sx)), loc} <> env, cs, ret, acc, ss)
+                ok : Unit <- falls(loop && Bool.not(last) && Bool.not(stops_all(some)), t)
+                none : Ir <- block(left, chain(Lint.items(Lint.field(h, "orelse")), t), False{}, loc, env, cs, ret, acc, ss)
+                Done{IMaybe{sx, none, some, typ(some), loc}}, u =>
             S.choose(Result<&2, &2, S.Error, Ir>, String.eq(tag, "If") && Bool.not(ends(left, body)) && Bool.not(loop && last), u =>
               S.choose(Result<&2, &2, S.Error, Ir>, String.eq(j, "") || String.eq(j, "?") || under(S.JItem{h, S.JEnd{}}, "Return", "") || under(S.JItem{h, S.JEnd{}}, "Break", ""), u =>
                 refuse(&2, Ir, loc, "if: an arm that falls through joins exactly one name the arms assign, with no return or break inside"), u =>
@@ -1263,7 +1303,7 @@ def block(fuel: Nat, xs: S.Json, first: Bool, +near: S.Json, +env: List<&2, Para
                       k : Ir <- block(left, t, False{}, loc, env, cs, ret, acc, ss)
                       Done{ILet{a, IFold{x, over, a, IVar{a, type_in(env, a), loc}, step, type_in(env, a), loc}, k, loc}}))), u =>
                 S.choose(Result<&2, &2, S.Error, Ir>, String.eq(tag, "Break") && loop && last, u => Done{IStop{IVar{acc, type_in(env, acc), loc}, loc}}, u =>
-                  refuse(&2, Ir, loc, "outside the fragment: statement " ++ tag)))))))))
+                  refuse(&2, Ir, loc, "outside the fragment: statement " ++ tag))))))))))
     case 1n+p _:
       S.choose(Result<&2, &2, S.Error, Ir>, String.eq(acc, ""), u =>
         refuse(&2, Ir, near, "no return: falling off the end is outside the fragment"), u =>
@@ -1630,7 +1670,7 @@ def lit_ok(+text: String, t: Ty) -> Bool:
     case TBool{}:
       String.eq(text, "True") || String.eq(text, "False")
     case TMaybe{of}:
-      String.eq(text, "None")
+      String.eq(text, "None") && Bool.not(String.is_empty(ty(of)))
     case _:
       False{}
 

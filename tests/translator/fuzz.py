@@ -148,8 +148,17 @@ class Gen:
                            else f"{pad}    return {self.expr(env, ret)}")
             elif k == 9 and self.names(env, "str | None"):
                 o = self.pick(self.names(env, "str | None"))
-                out.append(f"{pad}if {o} is None:")
-                out.append(f"{pad}    return {self.expr(env, ret)}")
+                if self.p(50):
+                    # the guard narrows: after it, o is a str
+                    out.append(f"{pad}if {o} is None:")
+                    out.append(f"{pad}    return {self.expr(env, ret)}")
+                    if depth == 0:
+                        env[o] = "str"
+                else:
+                    inner = dict(env)
+                    inner[o] = "str"
+                    out.append(f"{pad}if {o} is not None:")
+                    out.append(f"{pad}    return {self.expr(inner, ret)}")
         return out
 
     def module(self):
