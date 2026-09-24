@@ -31,6 +31,9 @@ def emit(op):
         del xs[op[1] :]
     elif kind == "Len":
         want.append(str(len(xs)))
+    elif kind == "Word":
+        i = op[1]
+        want.append(str(sum(xs[i + k] << (8 * k) for k in range(4))))
     ops.append("%s{%s}" % (kind, ", ".join(map(str, op[1:]))))
 
 
@@ -63,6 +66,18 @@ for phase in range(2):
     if phase == 0:
         for _ in range(len(xs) + 2):
             emit(("Pop",))
+
+# word_le is four bytes at once, and unlike at it can straddle two cells: an
+# offset that is a multiple of four is one native read, every other offset is
+# two reads glued by a pair of shifts. So the offsets below walk all four
+# alignments, at the front of the buffer, across a cell boundary, and at the
+# very end, where the second cell it touches holds bytes past the length -- a
+# word must not carry them.
+for _ in range(80):
+    emit(("Push", val()))
+emit(("Len",))
+for i in list(range(12)) + [16, 17, 30, 31, 32, 33, len(xs) - 5, len(xs) - 4]:
+    emit(("Word", i))
 want.append(", ".join(map(str, xs)))
 
 print("""# Bytes against a CPython bytearray (bytes_gen.py prints this file): a seeded script of
@@ -77,6 +92,7 @@ type Op is Data:
   Set{i: U32, x: U32}
   Trunc{k: U32}
   Len{}
+  Word{i: U32}
 
 def St() -> Type:
   Bytes.Bytes & List<&2, String>
@@ -115,6 +131,8 @@ def step(o: Op, v: Bytes.Bytes, out: List<&2, String>) -> St():
       (Bytes.truncate(v, k), out)
     case Len{}:
       sized(Bytes.len(v), out)
+    case Word{i}:
+      sized(Bytes.word_le(v, i), out)
 
 def open(o: Op, st: St()) -> St():
   (v, out) = st

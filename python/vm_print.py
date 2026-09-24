@@ -1,0 +1,5 @@
+print(1, 2, 3)
+print()
+print(True, False, None)
+print(1 + 1, 2 * 2, 3 - 1)
+print(0)

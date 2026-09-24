@@ -3,6 +3,7 @@
 # here from the Random123 paper, independently of power/rng.bend, and held to
 # Random123's three known-answer vectors before any row is emitted. run.sh
 # diffs this against the checked-in file.
+import math
 import random
 
 M = 0xFFFFFFFF
@@ -44,12 +45,31 @@ def hit(seed, i):  # a quarter-circle dart from two streams of one seed
     return 1 if x * x + y * y < (1 << 30) else 0
 
 
+def normal(seed, stream, step):
+    """Box-Muller on both words of one block, written from the definition and
+    not from power/rng.bend: the cosine half only, so the draw does not depend
+    on the parity of step."""
+    a, b = block(seed, stream, step, 0)
+    return math.sqrt(-2 * math.log((a + 0.5) / 2**32)) * math.cos(
+        2 * math.pi * (b / 2**32)
+    )
+
+
+def quant(z):  # z + 8 in millionths; see q() in the fixture for why
+    return int((z + 8.0) * 1000000 + 0.5)
+
+
+def insig(seed, i):  # one draw of stream 2, inside one standard deviation
+    return 1 if abs(normal(seed, 2, i)) < 1.0 else 0
+
+
 rng = random.Random(20260919)
 draws = [
     (rng.getrandbits(32), rng.getrandbits(32), rng.getrandbits(32)) for _ in range(12)
 ]
 draws += [(0, 0, 0), (M, M, M), (1, 0, 0), (0, 1, 0), (0, 0, 1)]
 DEPTH = 12
+SIG = 12
 
 rows, want = [], []
 for k, c, _ in KAT:
@@ -68,6 +88,15 @@ for s, t, i in draws[:6]:
     want.append(str(u32(s, t, i) % 1000))
 rows.append("U32.show(darts(%dn, 7, 0))" % DEPTH)
 want.append(str(sum(hit(7, i) for i in range(1 << DEPTH))))
+for s, t, i in draws[:6]:
+    rows.append("U32.show(q(Rng.normal(%d, %d, %d)))" % (s, t, i))
+    want.append(str(quant(normal(s, t, i))))
+# the six rows above pin the formula; this one pins that the formula is a
+# normal. 2^12 draws inside one standard deviation should be 0.6827 * 4096 =
+# 2796 and the binomial standard error is 30, so a count that is not near it is
+# a bug and not a seed.
+rows.append("U32.show(sigma(%dn, 5, 0))" % SIG)
+want.append(str(sum(insig(5, i) for i in range(1 << SIG))))
 
 print(
     """# Threefry2x32-20 against Random123's known-answer vectors and a CPython
@@ -99,6 +128,23 @@ def darts(d: Nat, +seed: U32, +i: U32) -> U32:
       dart(seed, i)
     case 1n++p:
       a b = darts(p, seed, i) darts(p, seed, U32.add(i, U32.shln(1, p)))
+      U32.add(a, b)
+
+# z + 8 in millionths. The four lanes hold the same double, but printing it raw
+# would pin sixteen digits of whichever libm the lane links, and only six of
+# them are the answer. The + 8 is free: |z| < 6.8 by construction, see norm.of.
+def q(z: F64) -> U32:
+  F64.to_u32(F64.add(F64.mul(F64.add(z, 8.0d), 1000000.0d), 0.5d))
+
+def insig(+seed: U32, +i: U32) -> U32:
+  bit(F64.is_lt(F64.abs(Rng.normal(seed, 2, i)), 1.0d))
+
+def sigma(d: Nat, +seed: U32, +i: U32) -> U32:
+  match d:
+    case 0n:
+      insig(seed, i)
+    case 1n++p:
+      a b = sigma(p, seed, i) sigma(p, seed, U32.add(i, U32.shln(1, p)))
       U32.add(a, b)
 
 def main() -> IO(Unit):

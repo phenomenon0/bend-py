@@ -49,6 +49,39 @@ def get(b: Bytes, +i: U32) -> Bytes & Maybe<&2, U32>:
     case Bytes{+n, v}:
       get.if(Bytes{n, v}, i, U32.is_lt(i, n))
 
+# word_le: the four bytes at byte index i, little end first, as one U32.
+# Unchecked like at. An i that is a multiple of four is exactly one cell, so it
+# is one native read and no shifting at all -- which is the only case a hash
+# over 64-byte blocks ever asks for; any other i costs a second read, two
+# shifts and an or.
+def word_le.one(n: U32, r: Vec.Vec & U32) -> Bytes & U32:
+  (v, w) = r
+  (Bytes{n, v}, w)
+
+def word_le.hi(n: U32, s: Nat, t: Nat, lo: U32, r: Vec.Vec & U32) -> Bytes & U32:
+  (v, hi) = r
+  (Bytes{n, v}, U32.or(U32.shrn(lo, s), U32.shln(hi, t)))
+
+def word_le.lo(n: U32, +c: U32, s: Nat, t: Nat, r: Vec.Vec & U32) -> Bytes & U32:
+  (v, lo) = r
+  word_le.hi(n, s, t, lo, Vec.at(v, U32.inc(c)))
+
+# the split shifts are 8, 16, 24 and their complements 24, 16, 8 -- never 0 or
+# 32, which is why the aligned case has to be its own branch and not a shift by
+# nothing
+def word_le.if(n: U32, v: Vec.Vec, +i: U32, +c: U32, aligned: Bool) -> Bytes & U32:
+  match aligned:
+    case True{}:
+      word_le.one(n, Vec.at(v, c))
+    case False{}:
+      word_le.lo(n, c, shift(i),
+        U32.to_nat(U32.shln(U32.sub(4, U32.and(i, 3)), 3n)), Vec.at(v, c))
+
+def word_le(b: Bytes, +i: U32) -> Bytes & U32:
+  match b:
+    case Bytes{n, v}:
+      word_le.if(n, v, i, U32.shrn(i, 2n), U32.is_zero(U32.and(i, 3)))
+
 # put: unchecked write of the low eight bits of x into slot i
 def put.cell(+w: U32, +s: Nat, x: U32) -> U32:
   U32.or(U32.and(w, U32.not(U32.shln(255, s))), U32.shln(U32.and(x, 255), s))
