@@ -16,7 +16,7 @@ if [ "${1:-}" = "--check" ]; then check=1; shift; fi
 fork="${1:-${BEND_DIR:-$root/.bend}}"
 [ -f "$fork/bend2/main.ts" ] || { echo "lift: $fork is not a Bend checkout" >&2; exit 2; }
 
-# zone in the fork -> place here
+# zone in the fork -> place here[ -> the only files taken from it, space-separated]
 map=(
   "demos/python:python"
   "tests/lint:tests/lint"
@@ -24,6 +24,7 @@ map=(
   "tests/parser:tests/parser"
   "tests/power:tests/power"
   "power:power"
+  "wire:wire:reader.bend"      # power's csv/deflate/gzip import ../wire/reader.bend (Base only)
 )
 # this repo's own versions: never overwritten, never deleted
 keep=(
@@ -34,10 +35,11 @@ kept() { local p; for p in "${keep[@]}"; do [ "$1" = "$p" ] && return 0; done; r
 
 drift=0
 for m in "${map[@]}"; do
-  src=${m%%:*} dst=${m##*:}
+  IFS=: read -r src dst only <<< "$m"
   want=$(git -C "$fork" ls-files -- "$src" | sed "s#^$src/##" | sort)
-  have=$( (cd "$root" && git ls-files -- "$dst"; cd "$root" && find "$dst" -type f 2>/dev/null) \
-    | grep -v '/_out/\|__pycache__' | sed "s#^$dst/##" | sort -u)
+  [ -z "$only" ] || want=$(grep -xF -f <(tr ' ' '\n' <<< "$only") <<< "$want" || true)
+  have=$( (cd "$root" && git ls-files -- "$dst"; cd "$root" && find "$dst" -type f 2>/dev/null || true) \
+    | { grep -v '/_out/\|__pycache__' || true; } | sed "s#^$dst/##" | sort -u)
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     kept "$dst/$f" && continue
