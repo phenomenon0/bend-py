@@ -9,29 +9,29 @@ import ../../../power/json.bend as Json
 def key(+i: U32) -> U32:
   U32.xor(U32.mul(U32.inc(i), 2654435761), U32.shrn(i, 3n))
 
-def oct(b: Bytes.Bytes, +x: U32, s: Nat) -> Bytes.Bytes:
+def oct(b: Bytes(), +x: U32, s: Nat) -> Bytes():
   Bytes.push(b, U32.add(48, U32.and(U32.shrn(x, s), 7)))
 
-def d5(b: Bytes.Bytes, +x: U32) -> Bytes.Bytes:
+def d5(b: Bytes(), +x: U32) -> Bytes():
   oct(oct(oct(oct(Bytes.push(b, U32.add(49, U32.and(x, 7))), x, 3n), x, 6n), x, 9n), x, 12n)
 
-def hx(b: Bytes.Bytes, +x: U32, s: Nat) -> Bytes.Bytes:
+def hx(b: Bytes(), +x: U32, s: Nat) -> Bytes():
   Bytes.push(b, U32.add(97, U32.and(U32.shrn(x, s), 15)))
 
-def s8(b: Bytes.Bytes, +x: U32) -> Bytes.Bytes:
+def s8(b: Bytes(), +x: U32) -> Bytes():
   hx(hx(hx(hx(hx(hx(hx(hx(b, x, 0n), x, 4n), x, 8n), x, 12n), x, 16n), x, 20n), x, 24n), x, 28n)
 
-def flag.b(b: Bytes.Bytes, odd: Bool) -> Bytes.Bytes:
+def flag.b(b: Bytes(), odd: Bool) -> Bytes():
   match odd:
     case True{}:
       Bytes.from_list([110, 117, 108, 108], b)
     case False{}:
       Bytes.from_list([116, 114, 117, 101], b)
 
-def flag(b: Bytes.Bytes, +x: U32) -> Bytes.Bytes:
+def flag(b: Bytes(), +x: U32) -> Bytes():
   flag.b(b, U32.is_eq(U32.and(x, 1), 1))
 
-def rec(b: Bytes.Bytes, +h: U32) -> Bytes.Bytes:
+def rec(b: Bytes(), +h: U32) -> Bytes():
   b1 = d5(Bytes.from_list([123, 34, 105, 34, 58], b), h)
   b2 = s8(Bytes.from_list([44, 34, 115, 34, 58, 34], b1), h)
   b3 = flag(Bytes.from_list([34, 44, 34, 98, 34, 58], b2), h)
@@ -39,18 +39,18 @@ def rec(b: Bytes.Bytes, +h: U32) -> Bytes.Bytes:
   b5 = d5(Bytes.push(b4, 44), U32.shrn(h, 7n))
   Bytes.from_list([93, 125, 44], b5)
 
-def recs(fuel: Nat, +i: U32, b: Bytes.Bytes) -> Bytes.Bytes:
+def recs(fuel: Nat, +i: U32, b: Bytes()) -> Bytes():
   match fuel:
     case 0n:
       b
     case 1n++p:
       recs(p, U32.inc(i), rec(b, key(i)))
 
-def close(r: Bytes.Bytes & U32) -> Bytes.Bytes:
+def close(r: Bytes() & U32) -> Bytes():
   (b, +n) = r
   Bytes.push(Bytes.truncate(b, U32.sub(n, 1)), 93)
 
-def doc(fuel: Nat, +lo: U32) -> Bytes.Bytes:
+def doc(fuel: Nat, +lo: U32) -> Bytes():
   close(Bytes.len(recs(fuel, lo, Bytes.push(Bytes.new(), 91))))
 
 def rot7(+v: U32) -> U32:
@@ -119,31 +119,31 @@ def fold.go(fuel: Nat, f: Fold) -> Fold:
             case False{}:
               Fold{s, acc, False{}}
 
-def fold.fin(+acc: U32, r: Bytes.Bytes & U32) -> Bytes.Bytes & U32:
+def fold.fin(+acc: U32, r: Bytes() & U32) -> Bytes() & U32:
   (b, l) = r
   (b, acc)
 
-def fold.out(f: Fold) -> Bytes.Bytes & U32:
+def fold.out(f: Fold) -> Bytes() & U32:
   match f:
     case Fold{s, acc, on}:
       fold.fin(acc, Json.finish(s))
 
 # thirteen events a record, so 20,000 is more than 800 records can raise
-def once(acc: U32, b: Bytes.Bytes) -> Bytes.Bytes & U32:
+def once(acc: U32, b: Bytes()) -> Bytes() & U32:
   fold.out(fold.go(20000n, Fold{Json.start(b, 4000000000), acc, True{}}))
 
-def step(ba: Bytes.Bytes & U32) -> Bytes.Bytes & U32:
+def step(ba: Bytes() & U32) -> Bytes() & U32:
   (b, acc) = ba
   once(acc, b)
 
-def rep(k: Nat, ba: Bytes.Bytes & U32) -> Bytes.Bytes & U32:
+def rep(k: Nat, ba: Bytes() & U32) -> Bytes() & U32:
   match k:
     case 0n:
       ba
     case 1n++p:
       rep(p, step(ba))
 
-def snd(ba: Bytes.Bytes & U32) -> U32:
+def snd(ba: Bytes() & U32) -> U32:
   (b, acc) = ba
   acc
 

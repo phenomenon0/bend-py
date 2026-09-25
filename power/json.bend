@@ -14,7 +14,11 @@
 # Whitespace and structural bytes spend saturating, so an exhausted budget is
 # reported at the next value token rather than mid-brace.
 #
-# Errors are an event, not a Result: the state owns an affine Bytes, which
+# The document is Base's Bytes(), the buffer TCP.recv_buf and File.read_buf
+# hand back, so a span is a view of it (raw) and json_value.bend builds a tree
+# over the same bytes without copying a number or an unescaped string.
+#
+# Errors are an event, not a Result: the state owns an affine Bitset, which
 # cannot sit inside Result's Data payload. Bad{at, why} is terminal -- every
 # later next() returns the same event, so a driver loop needs no flag.
 import Base
@@ -54,7 +58,7 @@ type Mode is Data:
   MBad{e: Event}            # terminal, holding the event to repeat
 
 type St is Type:
-  St{b: Bytes.Bytes, at: U32, n: U32, dep: U32, ks: Bitset.Bitset, md: Mode, left: U32}
+  St{b: Bytes(), at: U32, n: U32, dep: U32, ks: Bitset.Bitset, md: Mode, left: U32}
 
 # every scanner is one self-recursive loop over this: Go keeps stepping, Ok and
 # No stop it. The checker forbids mutual recursion outside Base, so an early
@@ -65,7 +69,7 @@ type Res is Data:
   No{why: Error}
 
 type Walk is Type:
-  Walk{b: Bytes.Bytes, i: U32, r: Res}
+  Walk{b: Bytes(), i: U32, r: Res}
 
 type Tok is Data:
   TObj{}
@@ -85,14 +89,14 @@ type Tok is Data:
 
 # reading past the end gives 0, which starts no json token, so every scanner can
 # index without a bounds test of its own
-def peek.if(b: Bytes.Bytes, +i: U32, ok: Bool) -> Bytes.Bytes & U32:
+def peek.if(b: Bytes(), +i: U32, ok: Bool) -> Bytes() & U32:
   match ok:
     case True{}:
       Bytes.at(b, i)
     case False{}:
       (b, 0)
 
-def peek(b: Bytes.Bytes, +i: U32, +n: U32) -> Bytes.Bytes & U32:
+def peek(b: Bytes(), +i: U32, +n: U32) -> Bytes() & U32:
   peek.if(b, i, U32.is_lt(i, n))
 
 def ws(+c: U32) -> Bool:
@@ -118,16 +122,16 @@ def simple(+c: U32) -> Bool:
 # exactly this pair, and a document with no whitespace in it never allocates a
 # second Look.
 type Look is Type:
-  Look{b: Bytes.Bytes, i: U32, c: U32, on: Bool}
+  Look{b: Bytes(), i: U32, c: U32, on: Bool}
 
-def look.if(b: Bytes.Bytes, +i: U32, +c: U32, hit: Bool) -> Look:
+def look.if(b: Bytes(), +i: U32, +c: U32, hit: Bool) -> Look:
   match hit:
     case True{}:
       Look{b, U32.inc(i), c, True{}}
     case False{}:
       Look{b, i, c, False{}}
 
-def look.set(+i: U32, r: Bytes.Bytes & U32) -> Look:
+def look.set(+i: U32, r: Bytes() & U32) -> Look:
   (b, +c) = r
   look.if(b, i, c, ws(c))
 
@@ -146,15 +150,15 @@ def look.go(fuel: Nat, +n: U32, l: Look) -> Look:
 
 # whitespace is free: it is bounded by the input, so pricing it would only make
 # the budget harder to reason about
-def look(b: Bytes.Bytes, +i: U32, +n: U32) -> Look:
+def look(b: Bytes(), +i: U32, +n: U32) -> Look:
   look.go(U32.to_nat(U32.inc(n)), n, look.set(i, peek(b, i, n)))
 
 # -- strings -----------------------------------------------------------------
 
 type Hex is Type:
-  Hex{b: Bytes.Bytes, j: U32, ok: Bool}
+  Hex{b: Bytes(), j: U32, ok: Bool}
 
-def hex.if(b: Bytes.Bytes, +j: U32, ok: Bool) -> Hex:
+def hex.if(b: Bytes(), +j: U32, ok: Bool) -> Hex:
   match ok:
     case True{}:
       Hex{b, U32.inc(j), True{}}
@@ -163,7 +167,7 @@ def hex.if(b: Bytes.Bytes, +j: U32, ok: Bool) -> Hex:
 
 # a bad digit does not advance, so \u12x is refused at the x like every other
 # scanner refuses the byte it could not use
-def hex.set(+j: U32, r: Bytes.Bytes & U32) -> Hex:
+def hex.set(+j: U32, r: Bytes() & U32) -> Hex:
   (b, c) = r
   hex.if(b, j, is_hex(c))
 
@@ -189,63 +193,63 @@ def hex4.fin(h: Hex) -> Walk:
         case False{}:
           Walk{b, j, No{Esc{}}}
 
-def hex4(b: Bytes.Bytes, +j: U32, +n: U32) -> Walk:
+def hex4(b: Bytes(), +j: U32, +n: U32) -> Walk:
   hex4.fin(hex.go(4n, n, Hex{b, j, True{}}))
 
-def esc.u(b: Bytes.Bytes, +j: U32, +n: U32, hit: Bool) -> Walk:
+def esc.u(b: Bytes(), +j: U32, +n: U32, hit: Bool) -> Walk:
   match hit:
     case True{}:
       hex4(b, U32.inc(j), n)
     case False{}:
       Walk{b, j, No{Esc{}}}
 
-def esc.one(b: Bytes.Bytes, +j: U32, +n: U32, +c: U32, plain: Bool) -> Walk:
+def esc.one(b: Bytes(), +j: U32, +n: U32, +c: U32, plain: Bool) -> Walk:
   match plain:
     case True{}:
       Walk{b, U32.inc(j), Go{}}
     case False{}:
       esc.u(b, j, n, U32.is_eq(c, 117))
 
-def esc.on(+j: U32, +n: U32, r: Bytes.Bytes & U32) -> Walk:
+def esc.on(+j: U32, +n: U32, r: Bytes() & U32) -> Walk:
   (b, +c) = r
   esc.one(b, j, n, c, simple(c))
 
-def esc.end(b: Bytes.Bytes, +j: U32, +n: U32, past: Bool) -> Walk:
+def esc.end(b: Bytes(), +j: U32, +n: U32, past: Bool) -> Walk:
   match past:
     case True{}:
       Walk{b, j, No{Cut{}}}
     case False{}:
       esc.on(j, n, Bytes.at(b, j))
 
-def esc(b: Bytes.Bytes, +j: U32, +n: U32) -> Walk:
+def esc(b: Bytes(), +j: U32, +n: U32) -> Walk:
   esc.end(b, j, n, U32.is_ge(j, n))
 
-def str.ctl(b: Bytes.Bytes, +i: U32, low: Bool) -> Walk:
+def str.ctl(b: Bytes(), +i: U32, low: Bool) -> Walk:
   match low:
     case True{}:
       Walk{b, i, No{Ctrl{}}}
     case False{}:
       Walk{b, U32.inc(i), Go{}}
 
-def str.esc(b: Bytes.Bytes, +i: U32, +n: U32, +c: U32, hit: Bool) -> Walk:
+def str.esc(b: Bytes(), +i: U32, +n: U32, +c: U32, hit: Bool) -> Walk:
   match hit:
     case True{}:
       esc(b, U32.inc(i), n)
     case False{}:
       str.ctl(b, i, U32.is_lt(c, 32))
 
-def str.quo(b: Bytes.Bytes, +i: U32, +n: U32, +c: U32, hit: Bool) -> Walk:
+def str.quo(b: Bytes(), +i: U32, +n: U32, +c: U32, hit: Bool) -> Walk:
   match hit:
     case True{}:
       Walk{b, U32.inc(i), Ok{}}
     case False{}:
       str.esc(b, i, n, c, U32.is_eq(c, 92))
 
-def str.on(+i: U32, +n: U32, r: Bytes.Bytes & U32) -> Walk:
+def str.on(+i: U32, +n: U32, r: Bytes() & U32) -> Walk:
   (b, +c) = r
   str.quo(b, i, n, c, U32.is_eq(c, 34))
 
-def str.end(b: Bytes.Bytes, +i: U32, +n: U32, past: Bool) -> Walk:
+def str.end(b: Bytes(), +i: U32, +n: U32, past: Bool) -> Walk:
   match past:
     case True{}:
       Walk{b, i, No{Cut{}}}
@@ -269,22 +273,22 @@ def str.go(fuel: Nat, +n: U32, w: Walk) -> Walk:
 
 # entered on the opening quote; the fuel cap is the budget, so a string longer
 # than the caller can afford stops early instead of being read and then refused
-def str(b: Bytes.Bytes, +at: U32, +n: U32, +left: U32) -> Walk:
+def str(b: Bytes(), +at: U32, +n: U32, +left: U32) -> Walk:
   str.go(U32.to_nat(U32.inc(U32.min(left, U32.sub(n, at)))), n, Walk{b, U32.inc(at), Go{}})
 
 # -- numbers -----------------------------------------------------------------
 
 type Dig is Type:
-  Dig{b: Bytes.Bytes, i: U32, k: U32, on: Bool}
+  Dig{b: Bytes(), i: U32, k: U32, on: Bool}
 
-def dig.if(b: Bytes.Bytes, +i: U32, +k: U32, hit: Bool) -> Dig:
+def dig.if(b: Bytes(), +i: U32, +k: U32, hit: Bool) -> Dig:
   match hit:
     case True{}:
       Dig{b, U32.inc(i), U32.inc(k), True{}}
     case False{}:
       Dig{b, i, k, False{}}
 
-def dig.set(+i: U32, +k: U32, r: Bytes.Bytes & U32) -> Dig:
+def dig.set(+i: U32, +k: U32, r: Bytes() & U32) -> Dig:
   (b, c) = r
   dig.if(b, i, k, digit(c))
 
@@ -301,12 +305,12 @@ def dig.go(fuel: Nat, +n: U32, d: Dig) -> Dig:
             case False{}:
               Dig{b, i, k, False{}}
 
-def digits(b: Bytes.Bytes, +i: U32, +n: U32, fuel: Nat) -> Dig:
+def digits(b: Bytes(), +i: U32, +n: U32, fuel: Nat) -> Dig:
   dig.go(fuel, n, Dig{b, i, 0, True{}})
 
 # -? (0 | [1-9][0-9]*) (. [0-9]+)? ([eE] [+-]? [0-9]+)? -- four straight-line
 # steps over one digits loop, which is a third of the code an explicit DFA takes
-def num.ok(b: Bytes.Bytes, +i: U32, some: Bool) -> Walk:
+def num.ok(b: Bytes(), +i: U32, some: Bool) -> Walk:
   match some:
     case True{}:
       Walk{b, i, Ok{}}
@@ -318,29 +322,29 @@ def num.e3(d: Dig) -> Walk:
     case Dig{b, +i, k, on}:
       num.ok(b, i, U32.is_gt(k, 0))
 
-def num.e2(b: Bytes.Bytes, +i: U32, +n: U32, +fuel: Nat, sign: Bool) -> Walk:
+def num.e2(b: Bytes(), +i: U32, +n: U32, +fuel: Nat, sign: Bool) -> Walk:
   match sign:
     case True{}:
       num.e3(digits(b, U32.inc(i), n, fuel))
     case False{}:
       num.e3(digits(b, i, n, fuel))
 
-def num.e1(+i: U32, +n: U32, +fuel: Nat, r: Bytes.Bytes & U32) -> Walk:
+def num.e1(+i: U32, +n: U32, +fuel: Nat, r: Bytes() & U32) -> Walk:
   (b, +c) = r
   num.e2(b, i, n, fuel, Bool.or(U32.is_eq(c, 43), U32.is_eq(c, 45)))
 
-def num.exp(b: Bytes.Bytes, +i: U32, +n: U32, +fuel: Nat, hit: Bool) -> Walk:
+def num.exp(b: Bytes(), +i: U32, +n: U32, +fuel: Nat, hit: Bool) -> Walk:
   match hit:
     case True{}:
       num.e1(U32.inc(i), n, fuel, peek(b, U32.inc(i), n))
     case False{}:
       Walk{b, i, Ok{}}
 
-def num.eq(+i: U32, +n: U32, +fuel: Nat, r: Bytes.Bytes & U32) -> Walk:
+def num.eq(+i: U32, +n: U32, +fuel: Nat, r: Bytes() & U32) -> Walk:
   (b, +c) = r
   num.exp(b, i, n, fuel, Bool.or(U32.is_eq(c, 101), U32.is_eq(c, 69)))
 
-def num.f3(b: Bytes.Bytes, +i: U32, +n: U32, +fuel: Nat, some: Bool) -> Walk:
+def num.f3(b: Bytes(), +i: U32, +n: U32, +fuel: Nat, some: Bool) -> Walk:
   match some:
     case True{}:
       num.eq(i, n, fuel, peek(b, i, n))
@@ -352,18 +356,18 @@ def num.f2(+n: U32, +fuel: Nat, d: Dig) -> Walk:
     case Dig{b, +i, k, on}:
       num.f3(b, i, n, fuel, U32.is_gt(k, 0))
 
-def num.frac(b: Bytes.Bytes, +i: U32, +n: U32, +fuel: Nat, hit: Bool) -> Walk:
+def num.frac(b: Bytes(), +i: U32, +n: U32, +fuel: Nat, hit: Bool) -> Walk:
   match hit:
     case True{}:
       num.f2(n, fuel, digits(b, U32.inc(i), n, fuel))
     case False{}:
       num.eq(i, n, fuel, peek(b, i, n))
 
-def num.dot(+i: U32, +n: U32, +fuel: Nat, r: Bytes.Bytes & U32) -> Walk:
+def num.dot(+i: U32, +n: U32, +fuel: Nat, r: Bytes() & U32) -> Walk:
   (b, c) = r
   num.frac(b, i, n, fuel, U32.is_eq(c, 46))
 
-def num.i2(b: Bytes.Bytes, +i: U32, +n: U32, +fuel: Nat, bad: Bool) -> Walk:
+def num.i2(b: Bytes(), +i: U32, +n: U32, +fuel: Nat, bad: Bool) -> Walk:
   match bad:
     case True{}:
       Walk{b, i, No{Digit{}}}
@@ -376,30 +380,30 @@ def num.i1(+n: U32, +fuel: Nat, +c1: U32, d: Dig) -> Walk:
     case Dig{b, +i, +k, on}:
       num.i2(b, i, n, fuel, Bool.or(U32.is_eq(k, 0), Bool.and(U32.is_eq(c1, 48), U32.is_ne(k, 1))))
 
-def num.s2(+i: U32, +n: U32, +fuel: Nat, r: Bytes.Bytes & U32) -> Walk:
+def num.s2(+i: U32, +n: U32, +fuel: Nat, r: Bytes() & U32) -> Walk:
   (b, +c) = r
   num.i1(n, fuel, c, digits(b, i, n, fuel))
 
-def num.s1(b: Bytes.Bytes, +i: U32, +n: U32, +fuel: Nat, neg: Bool) -> Walk:
+def num.s1(b: Bytes(), +i: U32, +n: U32, +fuel: Nat, neg: Bool) -> Walk:
   match neg:
     case True{}:
       num.s2(U32.inc(i), n, fuel, peek(b, U32.inc(i), n))
     case False{}:
       num.s2(i, n, fuel, peek(b, i, n))
 
-def num.s0(+i: U32, +n: U32, +fuel: Nat, r: Bytes.Bytes & U32) -> Walk:
+def num.s0(+i: U32, +n: U32, +fuel: Nat, r: Bytes() & U32) -> Walk:
   (b, c) = r
   num.s1(b, i, n, fuel, U32.is_eq(c, 45))
 
-def num(b: Bytes.Bytes, +at: U32, +n: U32, +left: U32) -> Walk:
+def num(b: Bytes(), +at: U32, +n: U32, +left: U32) -> Walk:
   num.s0(at, n, U32.to_nat(U32.inc(U32.min(left, U32.sub(n, at)))), peek(b, at, n))
 
 # -- true / false / null -----------------------------------------------------
 
 type Mat is Type:
-  Mat{b: Bytes.Bytes, i: U32, ok: Bool}
+  Mat{b: Bytes(), i: U32, ok: Bool}
 
-def lit.hit(b: Bytes.Bytes, +i: U32, ok: Bool) -> Mat:
+def lit.hit(b: Bytes(), +i: U32, ok: Bool) -> Mat:
   match ok:
     case True{}:
       Mat{b, U32.inc(i), True{}}
@@ -408,7 +412,7 @@ def lit.hit(b: Bytes.Bytes, +i: U32, ok: Bool) -> Mat:
 
 # a mismatch does not advance, so `tru` is refused at the byte that is missing
 # rather than one past the end of the input
-def lit.eq(+i: U32, +x: U32, r: Bytes.Bytes & U32) -> Mat:
+def lit.eq(+i: U32, +x: U32, r: Bytes() & U32) -> Mat:
   (b, c) = r
   lit.hit(b, i, U32.is_eq(c, x))
 
@@ -439,7 +443,7 @@ def lit.res(m: Mat) -> Walk:
         case False{}:
           Walk{b, i, No{Char{}}}
 
-def lit(b: Bytes.Bytes, +i: U32, +n: U32, want: List<&2, U32>) -> Walk:
+def lit(b: Bytes(), +i: U32, +n: U32, want: List<&2, U32>) -> Walk:
   lit.res(lit.go(n, want, Mat{b, i, True{}}))
 
 # -- budget ------------------------------------------------------------------
@@ -572,10 +576,10 @@ type Tick is Type:
   More{s: St}
   Emit{s: St, e: Event}
 
-def err.e(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, +e: Event) -> Tick:
+def err.e(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, +e: Event) -> Tick:
   Emit{St{b, at, n, dep, ks, MBad{e}, left}, e}
 
-def err(b: Bytes.Bytes, +at: U32, +n: U32, dep: U32, ks: Bitset.Bitset, left: U32, why: Error) -> Tick:
+def err(b: Bytes(), +at: U32, +n: U32, dep: U32, ks: Bitset.Bitset, left: U32, why: Error) -> Tick:
   err.e(b, at, n, dep, ks, left, Bad{at, why})
 
 def after.if(top: Bool) -> Mode:
@@ -590,10 +594,10 @@ def after(+dep: U32) -> Mode:
 
 # a value landed: at depth 0 the document is over, inside a container the next
 # thing must be a comma or a closer
-def land(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, e: Event) -> Tick:
+def land(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, e: Event) -> Tick:
   Emit{St{b, at, n, dep, ks, after(dep), left}, e}
 
-def val.str.r(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, +i: U32, r: Res) -> Tick:
+def val.str.r(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, +i: U32, r: Res) -> Tick:
   match r:
     case Ok{}:
       land(b, i, n, dep, ks, spend(left, U32.sub(i, at)), Str{U32.inc(at), U32.sub(U32.sub(i, at), 2)})
@@ -607,10 +611,10 @@ def val.str.w(+at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, w: Wa
     case Walk{b, +i, r}:
       val.str.r(b, at, n, dep, ks, left, i, charge(res.fin(r, i, n), left, U32.sub(i, at)))
 
-def val.str(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32) -> Tick:
+def val.str(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32) -> Tick:
   val.str.w(at, n, dep, ks, left, str(b, at, n, left))
 
-def val.num.r(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, +i: U32, r: Res) -> Tick:
+def val.num.r(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, +i: U32, r: Res) -> Tick:
   match r:
     case Ok{}:
       land(b, i, n, dep, ks, spend(left, U32.sub(i, at)), Num{at, U32.sub(i, at)})
@@ -624,10 +628,10 @@ def val.num.w(+at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, w: Wa
     case Walk{b, +i, r}:
       val.num.r(b, at, n, dep, ks, left, i, charge(res.fin(r, i, n), left, U32.sub(i, at)))
 
-def val.num(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32) -> Tick:
+def val.num(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32) -> Tick:
   val.num.w(at, n, dep, ks, left, num(b, at, n, left))
 
-def val.lit.r(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, +i: U32, e: Event, r: Res) -> Tick:
+def val.lit.r(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, +i: U32, e: Event, r: Res) -> Tick:
   match r:
     case Ok{}:
       land(b, i, n, dep, ks, spend(left, U32.sub(i, at)), e)
@@ -641,20 +645,20 @@ def val.lit.w(+at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, e: Ev
     case Walk{b, +i, r}:
       val.lit.r(b, at, n, dep, ks, left, i, e, charge(res.fin(r, i, n), left, U32.sub(i, at)))
 
-def val.lit(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, e: Event, want: List<&2, U32>) -> Tick:
+def val.lit(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, e: Event, want: List<&2, U32>) -> Tick:
   val.lit.w(at, n, dep, ks, left, e, lit(b, U32.inc(at), n, want))
 
-def push.ok(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, md: Mode, e: Event) -> Tick:
+def push.ok(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, md: Mode, e: Event) -> Tick:
   Emit{St{b, U32.inc(at), n, U32.inc(dep), ks, md, spend(left, 1)}, e}
 
-def val.obj(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, deep: Bool) -> Tick:
+def val.obj(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, deep: Bool) -> Tick:
   match deep:
     case True{}:
       err(b, at, n, dep, ks, left, Deep{})
     case False{}:
       push.ok(b, at, n, dep, Bitset.set(ks, dep), left, MKey0{}, ObjOpen{})
 
-def val.arr(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, deep: Bool) -> Tick:
+def val.arr(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, deep: Bool) -> Tick:
   match deep:
     case True{}:
       err(b, at, n, dep, ks, left, Deep{})
@@ -662,43 +666,43 @@ def val.arr(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +le
       push.ok(b, at, n, dep, Bitset.clear(ks, dep), left, MVal0{}, ArrOpen{})
 
 # a closer pops before it is checked, so `dep` here is already the new depth
-def pop.arr.if(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, isobj: Bool) -> Tick:
+def pop.arr.if(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, isobj: Bool) -> Tick:
   match isobj:
     case True{}:
       err(b, at, n, dep, ks, left, Char{})
     case False{}:
       land(b, U32.inc(at), n, dep, ks, spend(left, 1), ArrEnd{})
 
-def pop.arr(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, +left: U32, r: Bitset.Bitset & Bool) -> Tick:
+def pop.arr(b: Bytes(), +at: U32, +n: U32, +dep: U32, +left: U32, r: Bitset.Bitset & Bool) -> Tick:
   (ks, isobj) = r
   pop.arr.if(b, at, n, dep, ks, left, isobj)
 
-def pop.obj.if(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, isobj: Bool) -> Tick:
+def pop.obj.if(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, isobj: Bool) -> Tick:
   match isobj:
     case True{}:
       land(b, U32.inc(at), n, dep, ks, spend(left, 1), ObjEnd{})
     case False{}:
       err(b, at, n, dep, ks, left, Char{})
 
-def pop.obj(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, +left: U32, r: Bitset.Bitset & Bool) -> Tick:
+def pop.obj(b: Bytes(), +at: U32, +n: U32, +dep: U32, +left: U32, r: Bitset.Bitset & Bool) -> Tick:
   (ks, isobj) = r
   pop.obj.if(b, at, n, dep, ks, left, isobj)
 
-def shut.arr(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, ok: Bool) -> Tick:
+def shut.arr(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, ok: Bool) -> Tick:
   match ok:
     case True{}:
       pop.arr(b, at, n, U32.sub(dep, 1), left, Bitset.test(ks, U32.sub(dep, 1)))
     case False{}:
       err(b, at, n, dep, ks, left, Char{})
 
-def shut.obj(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, ok: Bool) -> Tick:
+def shut.obj(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, ok: Bool) -> Tick:
   match ok:
     case True{}:
       pop.obj(b, at, n, U32.sub(dep, 1), left, Bitset.test(ks, U32.sub(dep, 1)))
     case False{}:
       err(b, at, n, dep, ks, left, Char{})
 
-def value(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, shut: Bool, t: Tok) -> Tick:
+def value(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, shut: Bool, t: Tok) -> Tick:
   match t:
     case TObj{}:
       val.obj(b, at, n, dep, ks, left, U32.is_ge(dep, 256))
@@ -725,14 +729,14 @@ def value(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left
 # stream has no colon event to ignore
 # the colon is the one byte not reached through the token classifier, so this is
 # the one place that has to tell "ended here" from "wrong byte here" itself
-def key.col.no(b: Bytes.Bytes, +j: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, past: Bool) -> Tick:
+def key.col.no(b: Bytes(), +j: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, past: Bool) -> Tick:
   match past:
     case True{}:
       err(b, j, n, dep, ks, left, Cut{})
     case False{}:
       err(b, j, n, dep, ks, left, Char{})
 
-def key.col.if(b: Bytes.Bytes, +j: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, e: Event, hit: Bool) -> Tick:
+def key.col.if(b: Bytes(), +j: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, e: Event, hit: Bool) -> Tick:
   match hit:
     case True{}:
       Emit{St{b, U32.inc(j), n, dep, ks, MVal{}, spend(left, 1)}, e}
@@ -744,7 +748,7 @@ def key.col(+n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, e: Event, l: Look
     case Look{b, j, c, on}:
       key.col.if(b, j, n, dep, ks, left, e, U32.is_eq(c, 58))
 
-def key.str.r(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, +i: U32, r: Res) -> Tick:
+def key.str.r(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, +i: U32, r: Res) -> Tick:
   match r:
     case Ok{}:
       key.col(n, dep, ks, spend(left, U32.sub(i, at)), Field{U32.inc(at), U32.sub(U32.sub(i, at), 2)}, look(b, i, n))
@@ -758,10 +762,10 @@ def key.str.w(+at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, w: Wa
     case Walk{b, +i, r}:
       key.str.r(b, at, n, dep, ks, left, i, charge(res.fin(r, i, n), left, U32.sub(i, at)))
 
-def key.str(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32) -> Tick:
+def key.str(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32) -> Tick:
   key.str.w(at, n, dep, ks, left, str(b, at, n, left))
 
-def keym(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, shut: Bool, t: Tok) -> Tick:
+def keym(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, shut: Bool, t: Tok) -> Tick:
   match t:
     case TQuo{}:
       key.str(b, at, n, dep, ks, left)
@@ -772,19 +776,19 @@ def keym(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left:
     case _:
       err(b, at, n, dep, ks, left, Char{})
 
-def post.com.if(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, isobj: Bool) -> Tick:
+def post.com.if(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, isobj: Bool) -> Tick:
   match isobj:
     case True{}:
       More{St{b, U32.inc(at), n, dep, ks, MKey{}, spend(left, 1)}}
     case False{}:
       More{St{b, U32.inc(at), n, dep, ks, MVal{}, spend(left, 1)}}
 
-def post.com(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, +left: U32, r: Bitset.Bitset & Bool) -> Tick:
+def post.com(b: Bytes(), +at: U32, +n: U32, +dep: U32, +left: U32, r: Bitset.Bitset & Bool) -> Tick:
   (ks, isobj) = r
   post.com.if(b, at, n, dep, ks, left, isobj)
 
 # a comma emits nothing, so this is the one step that returns More
-def post(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, t: Tok) -> Tick:
+def post(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, t: Tok) -> Tick:
   match t:
     case TCom{}:
       post.com(b, at, n, dep, left, Bitset.test(ks, U32.sub(dep, 1)))
@@ -797,14 +801,14 @@ def post(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left:
     case _:
       err(b, at, n, dep, ks, left, Char{})
 
-def endm(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, t: Tok) -> Tick:
+def endm(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, t: Tok) -> Tick:
   match t:
     case TEnd{}:
       Emit{St{b, at, n, dep, ks, MDone{}, left}, Eof{}}
     case _:
       err(b, at, n, dep, ks, left, Char{})
 
-def disp(b: Bytes.Bytes, +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, md: Mode, t: Tok) -> Tick:
+def disp(b: Bytes(), +at: U32, +n: U32, +dep: U32, ks: Bitset.Bitset, +left: U32, md: Mode, t: Tok) -> Tick:
   match md:
     case MVal{}:
       value(b, at, n, dep, ks, left, False{}, t)
@@ -861,14 +865,14 @@ def next(s: St) -> St & Event:
 
 # -- the door ----------------------------------------------------------------
 
-def start.n(+limit: U32, r: Bytes.Bytes & U32) -> St:
+def start.n(+limit: U32, r: Bytes() & U32) -> St:
   (b, n) = r
   St{b, 0, n, 0, Bitset.new(8n), MVal{}, limit}
 
-def start(b: Bytes.Bytes, +limit: U32) -> St:
+def start(b: Bytes(), +limit: U32) -> St:
   start.n(limit, Bytes.len(b))
 
-def budget.mk(b: Bytes.Bytes, at: U32, n: U32, dep: U32, ks: Bitset.Bitset, md: Mode, +left: U32) -> St & U32:
+def budget.mk(b: Bytes(), at: U32, n: U32, dep: U32, ks: Bitset.Bitset, md: Mode, +left: U32) -> St & U32:
   (St{b, at, n, dep, ks, md, left}, left)
 
 def budget(s: St) -> St & U32:
@@ -876,13 +880,19 @@ def budget(s: St) -> St & U32:
     case St{b, at, n, dep, ks, md, left}:
       budget.mk(b, at, n, dep, ks, md, left)
 
+# the offset the next step starts from: just past the last event's bytes
+def cursor(s: St) -> St & U32:
+  match s:
+    case St{b, +at, n, dep, ks, md, left}:
+      (St{b, at, n, dep, ks, md, left}, at)
+
 def depth(s: St) -> St & U32:
   match s:
     case St{b, at, n, +dep, ks, md, left}:
       (St{b, at, n, dep, ks, md, left}, dep)
 
 # hand the input and the unspent budget back; the container stack is dropped
-def finish(s: St) -> Bytes.Bytes & U32:
+def finish(s: St) -> Bytes() & U32:
   match s:
     case St{b, at, n, dep, ks, md, left}:
       (b, left)
@@ -918,22 +928,22 @@ def check.go(fuel: Nat, c: Chk) -> Chk:
             case False{}:
               Chk{s, e, False{}}
 
-def check.b(e: Event, r: Bytes.Bytes & U32) -> Bytes.Bytes & Event:
+def check.b(e: Event, r: Bytes() & U32) -> Bytes() & Event:
   (b, l) = r
   (b, e)
 
-def check.out(c: Chk) -> Bytes.Bytes & Event:
+def check.out(c: Chk) -> Bytes() & Event:
   match c:
     case Chk{s, e, on}:
       check.b(e, finish(s))
 
-def check.len(+limit: U32, r: Bytes.Bytes & U32) -> Bytes.Bytes & Event:
+def check.len(+limit: U32, r: Bytes() & U32) -> Bytes() & Event:
   (b, +n) = r
   check.out(check.go(U32.to_nat(U32.add(U32.mul(n, 2), 4)), Chk{start.n(limit, (b, n)), Eof{}, True{}}))
 
 # drive the whole document and hand back the event that ended it: Eof if it is
 # valid json under the budget, otherwise the Bad that refused it
-def check(b: Bytes.Bytes, +limit: U32) -> Bytes.Bytes & Event:
+def check(b: Bytes(), +limit: U32) -> Bytes() & Event:
   check.len(limit, Bytes.len(b))
 
 type Skp is Type:
@@ -989,32 +999,12 @@ def skip(s: St) -> St & Event:
 
 # -- reading a span ----------------------------------------------------------
 
-type Raw is Type:
-  Raw{b: Bytes.Bytes, s: String}
-
-def raw.cons(r: Bytes.Bytes & U32, s: String) -> Raw:
-  (b, c) = r
-  Raw{b, SCon{Chr{c}, s}}
-
-def raw.go(k: Nat, +i: U32, r: Raw) -> Raw:
-  match k:
-    case 0n:
-      r
-    case 1n++p:
-      match r:
-        case Raw{b, s}:
-          raw.go(p, U32.sub(i, 1), raw.cons(Bytes.at(b, U32.sub(i, 1)), s))
-
-def raw.out(r: Raw) -> Bytes.Bytes & String:
-  match r:
-    case Raw{b, s}:
-      (b, s)
-
-# the span exactly as it sits in the input, one Char per byte: escapes are not
-# applied and non-ascii is not decoded, because a span is what the parser
-# promises and unescaping is the consumer's choice
-def raw(b: Bytes.Bytes, +at: U32, +len: U32) -> Bytes.Bytes & String:
-  raw.out(raw.go(U32.to_nat(len), U32.add(at, len), Raw{b, SNil{}}))
+# the span exactly as it sits in the input: escapes are not applied and
+# non-ascii is not decoded, because a span is what the parser promises and
+# unescaping is the consumer's choice (json_value.bend makes it). A view of
+# the caller's buffer: nothing is copied.
+def raw(+b: Bytes(), +at: U32, +len: U32) -> Bytes() & String:
+  (b, Bytes.slice(b, at, len))
 
 # -- showing it --------------------------------------------------------------
 

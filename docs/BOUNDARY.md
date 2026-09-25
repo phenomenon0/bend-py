@@ -41,6 +41,7 @@ benches. Rule of record: artifacts under `$HOME`, dated, no `/tmp`.
 |---|---|
 | `bend2/**` (base, comp, effs, pack) | A — capped, battery-gated |
 | `demos/python/**`, `tests/{parser,lint,translator}/**` | B — ours |
+| `demos/python/vm*`, `fuzz_vm.py` (here `python/`, run by `tests/vm/run.sh`) | B — the VM tier: the translator's fallback and the compiler's torture test |
 | `demos/{text,text_stream,parallel,regex,strings_tour}/**` | B — showcase, lifts with the package |
 | `power/**`, `tests/power/**` | B — the power-tools library: pure Bend over Base, never in `base.bend`; each primitive held to a CPython oracle on four lanes (`tests/power/run.sh`) |
 | `tests/{f64,strings,regex,codex}/**` | A-adjacent — core feature suites |

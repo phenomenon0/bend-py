@@ -560,19 +560,19 @@ import ../../power/json.bend as Json
 
 # ascii only: the corpus writes non-ascii as \\uXXXX, which is ascii itself
 # (ponytail: a utf-8 encoder lands with the first consumer that has a String)
-def of.push(c: Char, b: Bytes.Bytes) -> Bytes.Bytes:
+def of.push(c: Char, b: Bytes()) -> Bytes():
   match c:
     case Chr{code}:
       Bytes.push(b, code)
 
-def of.go(s: String, b: Bytes.Bytes) -> Bytes.Bytes:
+def of.go(s: String, b: Bytes()) -> Bytes():
   match s:
     case SNil{}:
       b
     case SCon{h, t}:
       of.go(t, of.push(h, b))
 
-def of(s: String) -> Bytes.Bytes:
+def of(s: String) -> Bytes():
   of.go(s, Bytes.new())
 
 type Run is Type:
@@ -598,7 +598,7 @@ def run.go(fuel: Nat, k: Run) -> Run:
             case False{}:
               Run{s, acc, False{}}
 
-def run.left(acc: String, r: Bytes.Bytes & U32) -> String:
+def run.left(acc: String, r: Bytes() & U32) -> String:
   (b, l) = r
   acc ++ "left=" ++ U32.show(l)
 
@@ -613,7 +613,7 @@ def drain(acc: String, s: Json.St) -> String:
 def ev(doc: String, +limit: U32) -> String:
   drain("", Json.start(of(doc), limit))
 
-def chk.e(r: Bytes.Bytes & Json.Event) -> String:
+def chk.e(r: Bytes() & Json.Event) -> String:
   (b, e) = r
   Json.show(e)
 
@@ -638,7 +638,7 @@ def sk.run(r: Json.St & Json.Event) -> String:
 def sk(doc: String, k: Nat, +limit: U32) -> String:
   sk.run(Json.skip(pre(k, Json.start(of(doc), limit))))
 
-def rw.out(r: Bytes.Bytes & String) -> String:
+def rw.out(r: Bytes() & String) -> String:
   (b, s) = r
   s
 

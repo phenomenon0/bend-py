@@ -31,6 +31,9 @@ def emit(op):
         del xs[op[1] :]
     elif kind == "Len":
         want.append(str(len(xs)))
+    elif kind == "Word":
+        i = op[1]
+        want.append(str(sum(xs[i + k] << (8 * k) for k in range(4))))
     ops.append("%s{%s}" % (kind, ", ".join(map(str, op[1:]))))
 
 
@@ -63,6 +66,18 @@ for phase in range(2):
     if phase == 0:
         for _ in range(len(xs) + 2):
             emit(("Pop",))
+
+# word_le is four bytes at once, and unlike at it can straddle two cells: an
+# offset that is a multiple of four is one native read, every other offset is
+# two reads glued by a pair of shifts. So the offsets below walk all four
+# alignments, at the front of the buffer, across a cell boundary, and at the
+# very end, where the second cell it touches holds bytes past the length -- a
+# word must not carry them.
+for _ in range(80):
+    emit(("Push", val()))
+emit(("Len",))
+for i in list(range(12)) + [16, 17, 30, 31, 32, 33, len(xs) - 5, len(xs) - 4]:
+    emit(("Word", i))
 want.append(", ".join(map(str, xs)))
 
 print("""# Bytes against a CPython bytearray (bytes_gen.py prints this file): a seeded script of
@@ -77,11 +92,12 @@ type Op is Data:
   Set{i: U32, x: U32}
   Trunc{k: U32}
   Len{}
+  Word{i: U32}
 
 def St() -> Type:
-  Bytes.Bytes & List<&2, String>
+  Bytes() & List<&2, String>
 
-def seen(r: Bytes.Bytes & Maybe<&2, U32>, out: List<&2, String>) -> St():
+def seen(r: Bytes() & Maybe<&2, U32>, out: List<&2, String>) -> St():
   (v, m) = r
   match m:
     case None{}:
@@ -89,7 +105,7 @@ def seen(r: Bytes.Bytes & Maybe<&2, U32>, out: List<&2, String>) -> St():
     case Some{x}:
       (v, Con{U32.show(x), out})
 
-def told(r: Bytes.Bytes & Bool, out: List<&2, String>) -> St():
+def told(r: Bytes() & Bool, out: List<&2, String>) -> St():
   (v, b) = r
   match b:
     case True{}:
@@ -97,11 +113,11 @@ def told(r: Bytes.Bytes & Bool, out: List<&2, String>) -> St():
     case False{}:
       (v, Con{"false", out})
 
-def sized(r: Bytes.Bytes & U32, out: List<&2, String>) -> St():
+def sized(r: Bytes() & U32, out: List<&2, String>) -> St():
   (v, n) = r
   (v, Con{U32.show(n), out})
 
-def step(o: Op, v: Bytes.Bytes, out: List<&2, String>) -> St():
+def step(o: Op, v: Bytes(), out: List<&2, String>) -> St():
   match o:
     case Push{x}:
       (Bytes.push(v, x), out)
@@ -115,6 +131,8 @@ def step(o: Op, v: Bytes.Bytes, out: List<&2, String>) -> St():
       (Bytes.truncate(v, k), out)
     case Len{}:
       sized(Bytes.len(v), out)
+    case Word{i}:
+      sized(Bytes.word_le(v, i), out)
 
 def open(o: Op, st: St()) -> St():
   (v, out) = st
@@ -134,7 +152,7 @@ def shows(xs: List<&2, U32>) -> List<&2, String>:
     case Con{x, t}:
       Con{U32.show(x), shows(t)}
 
-def last(r: Bytes.Bytes & List<&2, U32>, out: List<&2, String>) -> List<&2, String>:
+def last(r: Bytes() & List<&2, U32>, out: List<&2, String>) -> List<&2, String>:
   (v, xs) = r
   Con{String.join(shows(xs), ", "), out}
 

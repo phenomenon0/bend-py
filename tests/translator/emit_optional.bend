@@ -1,0 +1,19 @@
+# Optional parameters as Python passes them: `None`, or a plain `str` where
+# `str | None` is declared, fit to the parameter as None{} and Some{s} at the
+# call; and `if x is None: return` / `if x is not None:` narrow x to its
+# payload on the side where it is not None. The expected block is the emitted
+# module plus its span map.
+import Base
+import ../../demos/python/syntax.bend as S
+import ../../demos/python/translate.bend as Tr
+
+def show(r: Result<&2, &2, S.Error, String>) -> String:
+  match r:
+    case Done{s}:
+      s
+    case Fail{e}:
+      S.error_text(e)
+
+def main() -> String:
+  show(Tr.translate("def tag(s: str, suffix: str | None) -> str:\n    if suffix is None:\n        return s\n    return s + suffix\n\ndef tail(s: str, sep: str | None) -> str:\n    if sep is not None:\n        return s.replace(sep, \"/\")\n    return s\n\ndef both(s: str) -> str:\n    return tag(s, None) + tag(s, \"!\") + tail(s.strip(), None) + tail(s, \"-\")\n", Tr.contracts(), ""))
+#|"# Faithful translation (tiers 1-2) of Python `tag` 1:0-4:21, `tail` 6:0-9:12, `both` 11:0-12:76 by demos/python/translate.bend.\nimport Base\n\ndef tag.opt_2_4(suffix: Maybe<&2, String>, s: String) -> String:\n  match suffix:\n    case None{}:\n      s\n    case Some{suffix}:\n      String.append(s, suffix)\n\ndef tag(s: String, suffix: Maybe<&2, String>) -> String:\n  tag.opt_2_4(suffix, s)\n\ndef tail.opt_7_4(sep: Maybe<&2, String>, s: String) -> String:\n  match sep:\n    case None{}:\n      s\n    case Some{sep}:\n      String.replace(s, sep, \"/\")\n\ndef tail(s: String, sep: Maybe<&2, String>) -> String:\n  tail.opt_7_4(sep, s)\n\ndef both(+s: String) -> String:\n  String.append(String.append(String.append(tag(s, None{}), tag(s, Some{\"!\"})), tail(String.trim(s), None{})), tail(s, Some{\"-\"}))\n\n# spans: emitted Bend <- Python source, node : type\n# 7:6-7:7 <- py 3:8-3:16 Return : String\n# 7:6-7:7 <- py 3:15-3:16 Var s : String\n# 9:6-9:30 <- py 4:4-4:21 Return : String\n# 9:6-9:30 <- py 4:11-4:21 Prim String.append : String\n# 9:20-9:21 <- py 4:11-4:12 Var s : String\n# 9:23-9:29 <- py 4:15-4:21 Var suffix : String\n# 11:8-11:17 <- py 1:8-1:14 Param s : String\n# 11:19-11:44 <- py 1:16-1:34 Param suffix : Maybe<&2, String>\n# 12:2-12:24 <- py 2:4-3:16 Opt suffix : String\n# 17:6-17:7 <- py 9:4-9:12 Return : String\n# 17:6-17:7 <- py 9:11-9:12 Var s : String\n# 19:6-19:33 <- py 8:8-8:34 Return : String\n# 19:6-19:33 <- py 8:15-8:34 Prim String.replace : String\n# 19:21-19:22 <- py 8:15-8:16 Var s : String\n# 19:24-19:27 <- py 8:25-8:28 Var sep : String\n# 19:29-19:32 <- py 8:30-8:33 Lit \"/\" : String\n# 21:9-21:18 <- py 6:9-6:15 Param s : String\n# 21:20-21:42 <- py 6:17-6:32 Param sep : Maybe<&2, String>\n# 22:2-22:22 <- py 7:4-8:34 Opt sep : String\n# 24:9-24:19 <- py 11:9-11:15 Param s : String\n# 25:2-25:130 <- py 12:4-12:76 Return : String\n# 25:2-25:130 <- py 12:11-12:76 Prim String.append : String\n# 25:16-25:109 <- py 12:11-12:61 Prim String.append : String\n# 25:30-25:78 <- py 12:11-12:37 Prim String.append : String\n# 25:44-25:58 <- py 12:11-12:23 Call tag : String\n# 25:48-25:49 <- py 12:15-12:16 Var s : String\n# 25:51-25:57 <- py 12:18-12:22 Lit None{} : Maybe<&2, String>\n# 25:60-25:77 <- py 12:26-12:37 Call tag : String\n# 25:64-25:65 <- py 12:30-12:31 Var s : String\n# 25:67-25:76 <- py 12:33-12:36 Some : Maybe<&2, String>\n# 25:72-25:75 <- py 12:33-12:36 Lit \"!\" : String\n# 25:80-25:108 <- py 12:40-12:61 Call tail : String\n# 25:85-25:99 <- py 12:45-12:54 Prim String.trim : String\n# 25:97-25:98 <- py 12:45-12:46 Var s : String\n# 25:101-25:107 <- py 12:56-12:60 Lit None{} : Maybe<&2, String>\n# 25:111-25:129 <- py 12:64-12:76 Call tail : String\n# 25:116-25:117 <- py 12:69-12:70 Var s : String\n# 25:119-25:128 <- py 12:72-12:75 Some : Maybe<&2, String>\n# 25:124-25:127 <- py 12:72-12:75 Lit \"-\" : String\n"
