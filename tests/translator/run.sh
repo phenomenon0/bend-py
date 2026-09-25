@@ -8,6 +8,8 @@
 # Then the stub pass's ten mined defs (tests/translator/demos_stubs1.py), same claims, same four lanes:
 # six carry a reviewed stub as their signature, four are annotated in their own source, and each one's
 # refusal control edits that claim by a single type and must be refused, not emitted.
+# The oracle is $PY_ORACLE (else python3), CPython 3.11.15; the mined demos read $PY_MINED_ROOT
+# (else ~/Documents/Project) and are SKIP where it is absent.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 export PATH="$HOME/.local/bin:$PATH"
@@ -20,6 +22,7 @@ work=$(mktemp -d /tmp/bend-translator.XXXXXX)
 trap 'rm -rf -- "$work"' EXIT
 pass=0
 fail=0
+skip=0
 printf 'All terms check.\n' > "$work/checked"
 
 check() {
@@ -121,7 +124,9 @@ done
 for demo in normalize_stem repo_of first_dash fm_sources source_stems html_file_name page_tail \
             escape_path upgrade_tumblr_url sc_feas_class is_unet_key make_word_regex \
             string_begins_with is_remote_or_virtual_path safe_name esc canon_bool; do
-  python3 tests/translator/judge.py --demo "$demo" --optimize || fail=$((fail + 1))
+  # Exit 3: a mined source is absent here (judge.py names it). A changed one is still a FAIL.
+  python3 tests/translator/judge.py --demo "$demo" --optimize
+  case $? in 0) pass=$((pass + 1)) ;; 3) skip=$((skip + 1)) ;; *) fail=$((fail + 1)) ;; esac
 done
-printf '\nTranslator PASS: %d, FAIL: %d\n' "$pass" "$fail"
+printf '\nTranslator PASS: %d, FAIL: %d, SKIP: %d\n' "$pass" "$fail" "$skip"
 [ "$fail" -eq 0 ]

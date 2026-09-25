@@ -1197,9 +1197,9 @@ def show(+s: St) -> String:
 # never owned. Walk is kind Type only because it holds that Bytes -- the St
 # inside it is still Data, which is the whole point of the lane.
 type Walk is Type:
-  Walk{b: Bytes.Bytes, s: St}
+  Walk{b: Bytes(), s: St}
 
-def run.at(s: St, r: Bytes.Bytes & U32) -> Walk:
+def run.at(s: St, r: Bytes() & U32) -> Walk:
   (b, c) = r
   Walk{b, step(s, c)}
 
@@ -1212,10 +1212,10 @@ def run.go(k: Nat, +i: U32, w: Walk) -> Walk:
         case Walk{b, s}:
           run.go(p, U32.inc(i), run.at(s, Bytes.at(b, i)))
 
-def run.len(s: St, r: Bytes.Bytes & U32) -> Walk:
+def run.len(s: St, r: Bytes() & U32) -> Walk:
   (b, n) = r
   run.go(U32.to_nat(n), 0, Walk{b, s})
 
 # a dead state keeps stepping and stays dead, so run never needs an early exit
-def run(b: Bytes.Bytes, s: St) -> Walk:
+def run(b: Bytes(), s: St) -> Walk:
   run.len(s, Bytes.len(b))

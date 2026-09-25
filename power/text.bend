@@ -144,33 +144,33 @@ def size.a(+cp: U32, one: Bool) -> U32:
 def size(+cp: U32) -> U32:
   size.a(cp, U32.is_lt(cp, 128))
 
-def emit.2(b: By.Bytes, +cp: U32) -> By.Bytes:
+def emit.2(b: Bytes(), +cp: U32) -> Bytes():
   By.push(By.push(b, U32.or(192, U32.shrn(cp, 6n))), U32.or(128, U32.and(cp, 63)))
 
-def emit.3(b: By.Bytes, +cp: U32) -> By.Bytes:
+def emit.3(b: Bytes(), +cp: U32) -> Bytes():
   By.push(By.push(By.push(b, U32.or(224, U32.shrn(cp, 12n))),
     U32.or(128, U32.and(U32.shrn(cp, 6n), 63))), U32.or(128, U32.and(cp, 63)))
 
-def emit.4(b: By.Bytes, +cp: U32) -> By.Bytes:
+def emit.4(b: Bytes(), +cp: U32) -> Bytes():
   By.push(By.push(By.push(By.push(b, U32.or(240, U32.shrn(cp, 18n))),
     U32.or(128, U32.and(U32.shrn(cp, 12n), 63))),
     U32.or(128, U32.and(U32.shrn(cp, 6n), 63))), U32.or(128, U32.and(cp, 63)))
 
-def emit.c(b: By.Bytes, +cp: U32, wide: Bool) -> By.Bytes:
+def emit.c(b: Bytes(), +cp: U32, wide: Bool) -> Bytes():
   match wide:
     case True{}:
       emit.3(b, cp)
     case False{}:
       emit.4(b, cp)
 
-def emit.b(b: By.Bytes, +cp: U32, two: Bool) -> By.Bytes:
+def emit.b(b: Bytes(), +cp: U32, two: Bool) -> Bytes():
   match two:
     case True{}:
       emit.2(b, cp)
     case False{}:
       emit.c(b, cp, U32.is_lt(cp, 65536))
 
-def emit.a(b: By.Bytes, +cp: U32, one: Bool) -> By.Bytes:
+def emit.a(b: Bytes(), +cp: U32, one: Bool) -> Bytes():
   match one:
     case True{}:
       By.push(b, cp)
@@ -180,60 +180,60 @@ def emit.a(b: By.Bytes, +cp: U32, one: Bool) -> By.Bytes:
 # emit: append one code point. Unchecked on purpose -- a surrogate or a value
 # above U+10FFFF encodes to whatever the arithmetic gives. valid is the door
 # that refuses; this is the door that writes.
-def emit(b: By.Bytes, +cp: U32) -> By.Bytes:
+def emit(b: Bytes(), +cp: U32) -> Bytes():
   emit.a(b, cp, U32.is_lt(cp, 128))
 
-def utf.w(+w: U32, r: By.Bytes & U32) -> By.Bytes & (U32 & U32):
+def utf.w(+w: U32, r: Bytes() & U32) -> Bytes() & (U32 & U32):
   (b, acc) = r
   (b, (acc, w))
 
-def utf.fold(+acc: U32, r: By.Bytes & U32) -> By.Bytes & U32:
+def utf.fold(+acc: U32, r: Bytes() & U32) -> Bytes() & U32:
   (b, x) = r
   (b, U32.add(U32.shln(acc, 6n), U32.and(x, 63)))
 
-def utf.next(+i: U32, r: By.Bytes & U32) -> By.Bytes & U32:
+def utf.next(+i: U32, r: Bytes() & U32) -> Bytes() & U32:
   (b, acc) = r
   utf.fold(acc, By.at(b, i))
 
-def utf.2(b: By.Bytes, +i: U32, +c0: U32) -> By.Bytes & (U32 & U32):
+def utf.2(b: Bytes(), +i: U32, +c0: U32) -> Bytes() & (U32 & U32):
   utf.w(2, utf.fold(U32.and(c0, 31), By.at(b, U32.inc(i))))
 
-def utf.3(b: By.Bytes, +i: U32, +c0: U32) -> By.Bytes & (U32 & U32):
+def utf.3(b: Bytes(), +i: U32, +c0: U32) -> Bytes() & (U32 & U32):
   utf.w(3, utf.next(U32.add(i, 2), utf.fold(U32.and(c0, 15), By.at(b, U32.inc(i)))))
 
-def utf.4(b: By.Bytes, +i: U32, +c0: U32) -> By.Bytes & (U32 & U32):
+def utf.4(b: Bytes(), +i: U32, +c0: U32) -> Bytes() & (U32 & U32):
   utf.w(4, utf.next(U32.add(i, 3), utf.next(U32.add(i, 2),
     utf.fold(U32.and(c0, 7), By.at(b, U32.inc(i))))))
 
-def utf.d(b: By.Bytes, +i: U32, +c0: U32, three: Bool) -> By.Bytes & (U32 & U32):
+def utf.d(b: Bytes(), +i: U32, +c0: U32, three: Bool) -> Bytes() & (U32 & U32):
   match three:
     case True{}:
       utf.3(b, i, c0)
     case False{}:
       utf.4(b, i, c0)
 
-def utf.c(b: By.Bytes, +i: U32, +c0: U32, two: Bool) -> By.Bytes & (U32 & U32):
+def utf.c(b: Bytes(), +i: U32, +c0: U32, two: Bool) -> Bytes() & (U32 & U32):
   match two:
     case True{}:
       utf.2(b, i, c0)
     case False{}:
       utf.d(b, i, c0, U32.is_lt(c0, 240))
 
-def utf.b(b: By.Bytes, +i: U32, +c0: U32, one: Bool) -> By.Bytes & (U32 & U32):
+def utf.b(b: Bytes(), +i: U32, +c0: U32, one: Bool) -> Bytes() & (U32 & U32):
   match one:
     case True{}:
       (b, (c0, 1))
     case False{}:
       utf.c(b, i, c0, U32.is_lt(c0, 224))
 
-def utf.a(+i: U32, r: By.Bytes & U32) -> By.Bytes & (U32 & U32):
+def utf.a(+i: U32, r: Bytes() & U32) -> Bytes() & (U32 & U32):
   (b, +c0) = r
   utf.b(b, i, c0, U32.is_lt(c0, 128))
 
 # decode: the code point at byte i and the width it took, so a caller walks a
 # buffer by adding the second half of the answer and always knows the offset it
 # is standing on. Unchecked: it folds what the lead byte promises.
-def decode(b: By.Bytes, +i: U32) -> By.Bytes & (U32 & U32):
+def decode(b: Bytes(), +i: U32) -> Bytes() & (U32 & U32):
   utf.a(i, By.at(b, i))
 
 def cont(+x: U32) -> Bool:
@@ -296,17 +296,17 @@ def cpof(+c0: U32, +x1: U32, +x2: U32, +x3: U32) -> U32:
   cpof.b(c0, x1, x2, x3, U32.is_lt(c0, 128))
 
 type Vst is Type:
-  VDone{ok: U32, b: By.Bytes}
-  VMore{i: U32, b: By.Bytes}
+  VDone{ok: U32, b: Bytes()}
+  VMore{i: U32, b: Bytes()}
 
-def val.on(b: By.Bytes, +j: U32, done: Bool) -> Vst:
+def val.on(b: Bytes(), +j: U32, done: Bool) -> Vst:
   match done:
     case True{}:
       VDone{1, b}
     case False{}:
       VMore{j, b}
 
-def val.ok(b: By.Bytes, +j: U32, +n: U32, good: Bool) -> Vst:
+def val.ok(b: Bytes(), +j: U32, +n: U32, good: Bool) -> Vst:
   match good:
     case True{}:
       val.on(b, j, U32.is_ge(j, n))
@@ -316,13 +316,13 @@ def val.ok(b: By.Bytes, +j: U32, +n: U32, good: Bool) -> Vst:
 # the three checks that need the decoded value: nothing above U+10FFFF, an
 # overlong encoding is one whose code point would have fitted in fewer bytes,
 # and a surrogate is never UTF-8
-def val.cp(b: By.Bytes, +i: U32, +n: U32, +w: U32, +cp: U32, good: Bool) -> Vst:
+def val.cp(b: Bytes(), +i: U32, +n: U32, +w: U32, +cp: U32, good: Bool) -> Vst:
   val.ok(b, U32.add(i, w), n,
     Bool.and(good, Bool.and(U32.is_le(cp, 1114111),
       Bool.and(U32.is_eq(size(cp), w),
         Bool.not(Bool.and(U32.is_ge(cp, 55296), U32.is_le(cp, 57343)))))))
 
-def val.fin(b: By.Bytes, +i: U32, +n: U32, +c0: U32, +x1: U32, +x2: U32, +x3: U32,
+def val.fin(b: Bytes(), +i: U32, +n: U32, +c0: U32, +x1: U32, +x2: U32, +x3: U32,
   +w: U32) -> Vst:
   val.cp(b, i, n, w, cpof(c0, x1, x2, x3),
     Bool.and(U32.is_le(U32.add(i, w), n),
@@ -330,29 +330,29 @@ def val.fin(b: By.Bytes, +i: U32, +n: U32, +c0: U32, +x1: U32, +x2: U32, +x3: U3
         Bool.and(U32.is_ge(c0, 192), U32.is_le(c0, 244))),
         Bool.and(val.k(w, 1, x1), Bool.and(val.k(w, 2, x2), val.k(w, 3, x3))))))
 
-def val.d(+i: U32, +n: U32, +c0: U32, +x1: U32, +x2: U32, r: By.Bytes & U32) -> Vst:
+def val.d(+i: U32, +n: U32, +c0: U32, +x1: U32, +x2: U32, r: Bytes() & U32) -> Vst:
   (b, x3) = r
   val.fin(b, i, n, c0, x1, x2, x3, lead(c0))
 
-def val.c(+i: U32, +n: U32, +c0: U32, +x1: U32, r: By.Bytes & U32) -> Vst:
+def val.c(+i: U32, +n: U32, +c0: U32, +x1: U32, r: Bytes() & U32) -> Vst:
   (b, x2) = r
   val.d(i, n, c0, x1, x2, By.at(b, U32.add(i, 3)))
 
-def val.b(+i: U32, +n: U32, +c0: U32, r: By.Bytes & U32) -> Vst:
+def val.b(+i: U32, +n: U32, +c0: U32, r: Bytes() & U32) -> Vst:
   (b, x1) = r
   val.c(i, n, c0, x1, By.at(b, U32.add(i, 2)))
 
 # the three trailing bytes are read whether the width wants them or not: By.at
 # wraps at the capacity, so a read past the end is a junk number and never a
 # fault, and one straight-line read beats three branches
-def val.a(+i: U32, +n: U32, r: By.Bytes & U32) -> Vst:
+def val.a(+i: U32, +n: U32, r: Bytes() & U32) -> Vst:
   (b, c0) = r
   val.b(i, n, c0, By.at(b, U32.inc(i)))
 
-def val.step(b: By.Bytes, +i: U32, +n: U32) -> Vst:
+def val.step(b: Bytes(), +i: U32, +n: U32) -> Vst:
   val.a(i, n, By.at(b, i))
 
-def val.go(fuel: Nat, s: Vst, +n: U32) -> By.Bytes & Bool:
+def val.go(fuel: Nat, s: Vst, +n: U32) -> Bytes() & Bool:
   match fuel:
     case 0n:
       match s:
@@ -367,39 +367,39 @@ def val.go(fuel: Nat, s: Vst, +n: U32) -> By.Bytes & Bool:
         case VMore{i, b}:
           val.go(p, val.step(b, i, n), n)
 
-def val.start(b: By.Bytes, +n: U32) -> Vst:
+def val.start(b: Bytes(), +n: U32) -> Vst:
   val.on(b, 0, U32.is_zero(n))
 
-def valid.n(r: By.Bytes & U32) -> By.Bytes & Bool:
+def valid.n(r: Bytes() & U32) -> Bytes() & Bool:
   (b, +n) = r
   val.go(U32.to_nat(U32.inc(n)), val.start(b, n), n)
 
 # valid: is every byte part of a well-formed sequence -- no overlong, no
 # surrogate, no truncated tail, nothing above U+10FFFF, no stray continuation
-def valid(b: By.Bytes) -> By.Bytes & Bool:
+def valid(b: Bytes()) -> Bytes() & Bool:
   valid.n(By.len(b))
 
 type Shw is Type:
-  SEnd{b: By.Bytes, s: String}
-  SGo{i: U32, b: By.Bytes, s: String}
+  SEnd{b: Bytes(), s: String}
+  SGo{i: U32, b: Bytes(), s: String}
 
-def cps.mk(b: By.Bytes, s: String, +i: U32, +n: U32, done: Bool) -> Shw:
+def cps.mk(b: Bytes(), s: String, +i: U32, +n: U32, done: Bool) -> Shw:
   match done:
     case True{}:
       SEnd{b, s}
     case False{}:
       SGo{i, b, s}
 
-def cps.put2(s: String, +i: U32, +n: U32, b: By.Bytes, cw: U32 & U32) -> Shw:
+def cps.put2(s: String, +i: U32, +n: U32, b: Bytes(), cw: U32 & U32) -> Shw:
   (c, w) = cw
   +j = U32.add(i, w)
   cps.mk(b, String.append(String.append(s, U32.show(c)), " "), j, n, U32.is_ge(j, n))
 
-def cps.put(s: String, +i: U32, +n: U32, r: By.Bytes & (U32 & U32)) -> Shw:
+def cps.put(s: String, +i: U32, +n: U32, r: Bytes() & (U32 & U32)) -> Shw:
   (b, cw) = r
   cps.put2(s, i, n, b, cw)
 
-def cps.go(fuel: Nat, s: Shw, +n: U32) -> By.Bytes & String:
+def cps.go(fuel: Nat, s: Shw, +n: U32) -> Bytes() & String:
   match fuel:
     case 0n:
       match s:
@@ -414,10 +414,10 @@ def cps.go(fuel: Nat, s: Shw, +n: U32) -> By.Bytes & String:
         case SGo{+i, b, t}:
           cps.go(p, cps.put(t, i, n, decode(b, i)), n)
 
-def cps.start(b: By.Bytes, +n: U32) -> Shw:
+def cps.start(b: Bytes(), +n: U32) -> Shw:
   cps.mk(b, "", 0, n, U32.is_zero(n))
 
-def cps.n(r: By.Bytes & U32) -> By.Bytes & String:
+def cps.n(r: Bytes() & U32) -> Bytes() & String:
   (b, +n) = r
   cps.go(U32.to_nat(U32.inc(n)), cps.start(b, n), n)
 
@@ -425,7 +425,7 @@ def cps.n(r: By.Bytes & U32) -> By.Bytes & String:
 # prints numbers and not characters, because a raw character in a test row has
 # to survive the file, three backends and a terminal, and a number only has to
 # survive arithmetic.
-def cps(b: By.Bytes) -> By.Bytes & String:
+def cps(b: Bytes()) -> Bytes() & String:
   cps.n(By.len(b))
 
 # -- grapheme clusters, UAX #29 ----------------------------------------------
@@ -519,10 +519,10 @@ def flag(+raw: U32, +fl: U32) -> U32:
   U32.or(U32.or(bit.azp(raw, fl), bit.pict(raw, fl)), bit.ri(raw, fl))
 
 type Gst is Type:
-  GEnd{b: By.Bytes, v: Vec.Vec}
-  GGo{i: U32, q: U32, fl: U32, b: By.Bytes, v: Vec.Vec}
+  GEnd{b: Bytes(), v: Vec.Vec}
+  GGo{i: U32, q: U32, fl: U32, b: Bytes(), v: Vec.Vec}
 
-def gr.mk(b: By.Bytes, v: Vec.Vec, +i: U32, +q: U32, +fl: U32, +n: U32,
+def gr.mk(b: Bytes(), v: Vec.Vec, +i: U32, +q: U32, +fl: U32, +n: U32,
   done: Bool) -> Gst:
   match done:
     case True{}:
@@ -530,12 +530,12 @@ def gr.mk(b: By.Bytes, v: Vec.Vec, +i: U32, +q: U32, +fl: U32, +n: U32,
     case False{}:
       GGo{i, q, fl, b, v}
 
-def gr.adv(b: By.Bytes, v: Vec.Vec, +i: U32, +w: U32, +raw: U32, +fl: U32,
+def gr.adv(b: Bytes(), v: Vec.Vec, +i: U32, +w: U32, +raw: U32, +fl: U32,
   +n: U32) -> Gst:
   +j = U32.add(i, w)
   gr.mk(b, v, j, raw, flag(raw, fl), n, U32.is_ge(j, n))
 
-def gr.cut(b: By.Bytes, v: Vec.Vec, +i: U32, +w: U32, +raw: U32, +fl: U32,
+def gr.cut(b: Bytes(), v: Vec.Vec, +i: U32, +w: U32, +raw: U32, +fl: U32,
   +n: U32, cut: Bool) -> Gst:
   match cut:
     case True{}:
@@ -543,22 +543,22 @@ def gr.cut(b: By.Bytes, v: Vec.Vec, +i: U32, +w: U32, +raw: U32, +fl: U32,
     case False{}:
       gr.adv(b, v, i, w, raw, fl, n)
 
-def gr.raw(b: By.Bytes, v: Vec.Vec, +i: U32, +q: U32, +fl: U32, +n: U32,
+def gr.raw(b: Bytes(), v: Vec.Vec, +i: U32, +q: U32, +fl: U32, +n: U32,
   +w: U32, +raw: U32) -> Gst:
   gr.cut(b, v, i, w, raw, fl, n,
     Bool.or(U32.is_eq(q, 255), brk(gg(q), gg(raw), raw, fl)))
 
-def gr.dec2(b: By.Bytes, v: Vec.Vec, +i: U32, +q: U32, +fl: U32, +n: U32,
+def gr.dec2(b: Bytes(), v: Vec.Vec, +i: U32, +q: U32, +fl: U32, +n: U32,
   cw: U32 & U32) -> Gst:
   (cp, w) = cw
   gr.raw(b, v, i, q, fl, n, w, gcb(cp))
 
 def gr.dec(v: Vec.Vec, +i: U32, +q: U32, +fl: U32, +n: U32,
-  r: By.Bytes & (U32 & U32)) -> Gst:
+  r: Bytes() & (U32 & U32)) -> Gst:
   (b, cw) = r
   gr.dec2(b, v, i, q, fl, n, cw)
 
-def gr.go(fuel: Nat, s: Gst, +n: U32) -> By.Bytes & Vec.Vec:
+def gr.go(fuel: Nat, s: Gst, +n: U32) -> Bytes() & Vec.Vec:
   match fuel:
     case 0n:
       match s:
@@ -575,17 +575,17 @@ def gr.go(fuel: Nat, s: Gst, +n: U32) -> By.Bytes & Vec.Vec:
 
 # 255 is the "no previous class" mark: GB1 breaks at the start of text, and a
 # class number is never 255, so the first code point always cuts.
-def gr.start(b: By.Bytes, +n: U32) -> Gst:
+def gr.start(b: Bytes(), +n: U32) -> Gst:
   gr.mk(b, Vec.new(0), 0, 255, 0, n, U32.is_zero(n))
 
-def gr.n(r: By.Bytes & U32) -> By.Bytes & Vec.Vec:
+def gr.n(r: Bytes() & U32) -> Bytes() & Vec.Vec:
   (b, +n) = r
   gr.go(U32.to_nat(U32.inc(n)), gr.start(b, n), n)
 
 # graphemes: the byte offset every extended grapheme cluster starts at, then the
 # length of the buffer as a closing sentinel -- so cluster j is [v[j], v[j+1])
 # and the last one is not a special case. An empty buffer gives [0].
-def graphemes(b: By.Bytes) -> By.Bytes & Vec.Vec:
+def graphemes(b: Bytes()) -> Bytes() & Vec.Vec:
   gr.n(By.len(b))
 
 # -- normalization, UAX #15 --------------------------------------------------
@@ -904,7 +904,7 @@ def compose(v: Vec.Vec, +m: U32) -> Vec.Vec & U32:
 # strictly increasing and each closed by the length of its own buffer, so
 # segment j is [t[j], t[j+1]) in both and the last one is not a special case.
 type Norm is Type:
-  Norm{out: By.Bytes, src: Vec.Vec, dst: Vec.Vec}
+  Norm{out: Bytes(), src: Vec.Vec, dst: Vec.Vec}
 
 # Span: a citation that survives normalization. doc and rev are the caller's
 # own identifiers -- a range without the revision it was taken against is a
@@ -927,12 +927,12 @@ def fkey(f: Form) -> U32:
       2
 
 type Acc is Type:
-  Acc{out: By.Bytes, src: Vec.Vec, dst: Vec.Vec, buf: Vec.Vec}
+  Acc{out: Bytes(), src: Vec.Vec, dst: Vec.Vec, buf: Vec.Vec}
 
 type Enc is Type:
-  Enc{k: U32, out: By.Bytes, v: Vec.Vec}
+  Enc{k: U32, out: Bytes(), v: Vec.Vec}
 
-def enc.put(+k: U32, r: Vec.Vec & U32, out: By.Bytes) -> Enc:
+def enc.put(+k: U32, r: Vec.Vec & U32, out: Bytes()) -> Enc:
   (v, c) = r
   Enc{U32.inc(k), emit(out, c), v}
 
@@ -948,31 +948,31 @@ def enc.go(fuel: Nat, e: Enc) -> Enc:
     case 1n++p:
       enc.go(p, enc.step(e))
 
-def enc.take(e: Enc) -> By.Bytes & Vec.Vec:
+def enc.take(e: Enc) -> Bytes() & Vec.Vec:
   match e:
     case Enc{k, out, v}:
       (out, v)
 
-def fl.done(src: Vec.Vec, dst: Vec.Vec, r: By.Bytes & Vec.Vec) -> Acc:
+def fl.done(src: Vec.Vec, dst: Vec.Vec, r: Bytes() & Vec.Vec) -> Acc:
   (out, v) = r
   Acc{out, src, dst, Vec.truncate(v, 0)}
 
-def fl.enc(src: Vec.Vec, dst: Vec.Vec, out: By.Bytes, v: Vec.Vec, +w: U32) -> Acc:
+def fl.enc(src: Vec.Vec, dst: Vec.Vec, out: Bytes(), v: Vec.Vec, +w: U32) -> Acc:
   fl.done(src, dst, enc.take(enc.go(U32.to_nat(w), Enc{0, out, v})))
 
 # the map row is written here and nowhere else: one segment out, one pair of
 # starts in
 def fl.map(src: Vec.Vec, dst: Vec.Vec, +seg: U32, v: Vec.Vec, +w: U32,
-  r: By.Bytes & U32) -> Acc:
+  r: Bytes() & U32) -> Acc:
   (out, n) = r
   fl.enc(Vec.push(src, seg), Vec.push(dst, n), out, v, w)
 
-def fl.w(out: By.Bytes, src: Vec.Vec, dst: Vec.Vec, +seg: U32,
+def fl.w(out: Bytes(), src: Vec.Vec, dst: Vec.Vec, +seg: U32,
   r: Vec.Vec & U32) -> Acc:
   (v, w) = r
   fl.map(src, dst, seg, v, w, By.len(out))
 
-def fl.form(out: By.Bytes, src: Vec.Vec, dst: Vec.Vec, +seg: U32, v: Vec.Vec,
+def fl.form(out: Bytes(), src: Vec.Vec, dst: Vec.Vec, +seg: U32, v: Vec.Vec,
   +m: U32, nfd: Bool) -> Acc:
   match nfd:
     case True{}:
@@ -980,11 +980,11 @@ def fl.form(out: By.Bytes, src: Vec.Vec, dst: Vec.Vec, +seg: U32, v: Vec.Vec,
     case False{}:
       fl.w(out, src, dst, seg, compose(v, m))
 
-def fl.go(out: By.Bytes, src: Vec.Vec, dst: Vec.Vec, +seg: U32, buf: Vec.Vec,
+def fl.go(out: Bytes(), src: Vec.Vec, dst: Vec.Vec, +seg: U32, buf: Vec.Vec,
   +m: U32, +fm: U32) -> Acc:
   fl.form(out, src, dst, seg, order(buf, m), m, U32.is_zero(fm))
 
-def flush(out: By.Bytes, src: Vec.Vec, dst: Vec.Vec, buf: Vec.Vec, +seg: U32,
+def flush(out: Bytes(), src: Vec.Vec, dst: Vec.Vec, buf: Vec.Vec, +seg: U32,
   +m: U32, +fm: U32, empty: Bool) -> Acc:
   match empty:
     case True{}:
@@ -993,10 +993,10 @@ def flush(out: By.Bytes, src: Vec.Vec, dst: Vec.Vec, buf: Vec.Vec, +seg: U32,
       fl.go(out, src, dst, seg, buf, m, fm)
 
 type Cur is Type:
-  CEnd{seg: U32, out: By.Bytes, src: Vec.Vec, dst: Vec.Vec, inp: By.Bytes,
+  CEnd{seg: U32, out: Bytes(), src: Vec.Vec, dst: Vec.Vec, inp: Bytes(),
     buf: Vec.Vec}
-  CGo{i: U32, seg: U32, out: By.Bytes, src: Vec.Vec, dst: Vec.Vec,
-    inp: By.Bytes, buf: Vec.Vec}
+  CGo{i: U32, seg: U32, out: Bytes(), src: Vec.Vec, dst: Vec.Vec,
+    inp: Bytes(), buf: Vec.Vec}
 
 def nm.case.if(+cp: U32, f: Bool) -> U32:
   match f:
@@ -1008,7 +1008,7 @@ def nm.case.if(+cp: U32, f: Bool) -> U32:
 def nm.case(+cp: U32, +fm: U32) -> U32:
   nm.case.if(cp, U32.is_eq(fm, 2))
 
-def nm.end(+seg: U32, out: By.Bytes, src: Vec.Vec, dst: Vec.Vec, inp: By.Bytes,
+def nm.end(+seg: U32, out: Bytes(), src: Vec.Vec, dst: Vec.Vec, inp: Bytes(),
   buf: Vec.Vec, +j: U32, done: Bool) -> Cur:
   match done:
     case True{}:
@@ -1016,7 +1016,7 @@ def nm.end(+seg: U32, out: By.Bytes, src: Vec.Vec, dst: Vec.Vec, inp: By.Bytes,
     case False{}:
       CGo{j, seg, out, src, dst, inp, buf}
 
-def nm.acc(+seg: U32, +n: U32, inp: By.Bytes, +j: U32, +c2: U32, a: Acc) -> Cur:
+def nm.acc(+seg: U32, +n: U32, inp: Bytes(), +j: U32, +c2: U32, a: Acc) -> Cur:
   match a:
     case Acc{out, src, dst, buf}:
       nm.end(seg, out, src, dst, inp, dcp(buf, c2), j, U32.is_ge(j, n))
@@ -1024,8 +1024,8 @@ def nm.acc(+seg: U32, +n: U32, inp: By.Bytes, +j: U32, +c2: U32, a: Acc) -> Cur:
 # the one decision in the loop: a code point that can open a segment closes the
 # one in hand, and the segment it closes is the one whose original start was
 # remembered in seg
-def nm.cut(+i: U32, +seg: U32, +n: U32, out: By.Bytes, src: Vec.Vec,
-  dst: Vec.Vec, buf: Vec.Vec, +m: U32, inp: By.Bytes, +j: U32, +c2: U32,
+def nm.cut(+i: U32, +seg: U32, +n: U32, out: Bytes(), src: Vec.Vec,
+  dst: Vec.Vec, buf: Vec.Vec, +m: U32, inp: Bytes(), +j: U32, +c2: U32,
   +fm: U32, cut: Bool) -> Cur:
   match cut:
     case True{}:
@@ -1033,24 +1033,24 @@ def nm.cut(+i: U32, +seg: U32, +n: U32, out: By.Bytes, src: Vec.Vec,
     case False{}:
       nm.acc(seg, n, inp, j, c2, Acc{out, src, dst, buf})
 
-def nm.cp(+i: U32, +seg: U32, +n: U32, +fm: U32, out: By.Bytes, src: Vec.Vec,
-  dst: Vec.Vec, buf: Vec.Vec, +m: U32, inp: By.Bytes, +j: U32, +c2: U32) -> Cur:
+def nm.cp(+i: U32, +seg: U32, +n: U32, +fm: U32, out: Bytes(), src: Vec.Vec,
+  dst: Vec.Vec, buf: Vec.Vec, +m: U32, inp: Bytes(), +j: U32, +c2: U32) -> Cur:
   nm.cut(i, seg, n, out, src, dst, buf, m, inp, j, c2, fm,
     Bool.and(is_start(c2), U32.is_gt(m, 0)))
 
-def nm.cw(+i: U32, +seg: U32, +n: U32, +fm: U32, out: By.Bytes, src: Vec.Vec,
-  dst: Vec.Vec, buf: Vec.Vec, +m: U32, inp: By.Bytes, cw: U32 & U32) -> Cur:
+def nm.cw(+i: U32, +seg: U32, +n: U32, +fm: U32, out: Bytes(), src: Vec.Vec,
+  dst: Vec.Vec, buf: Vec.Vec, +m: U32, inp: Bytes(), cw: U32 & U32) -> Cur:
   (cp, w) = cw
   nm.cp(i, seg, n, fm, out, src, dst, buf, m, inp, U32.add(i, w),
     nm.case(cp, fm))
 
-def nm.dec(+i: U32, +seg: U32, +n: U32, +fm: U32, out: By.Bytes, src: Vec.Vec,
-  dst: Vec.Vec, buf: Vec.Vec, +m: U32, r: By.Bytes & (U32 & U32)) -> Cur:
+def nm.dec(+i: U32, +seg: U32, +n: U32, +fm: U32, out: Bytes(), src: Vec.Vec,
+  dst: Vec.Vec, buf: Vec.Vec, +m: U32, r: Bytes() & (U32 & U32)) -> Cur:
   (inp, cw) = r
   nm.cw(i, seg, n, fm, out, src, dst, buf, m, inp, cw)
 
-def nm.len(+i: U32, +seg: U32, +n: U32, +fm: U32, out: By.Bytes, src: Vec.Vec,
-  dst: Vec.Vec, inp: By.Bytes, r: Vec.Vec & U32) -> Cur:
+def nm.len(+i: U32, +seg: U32, +n: U32, +fm: U32, out: Bytes(), src: Vec.Vec,
+  dst: Vec.Vec, inp: Bytes(), r: Vec.Vec & U32) -> Cur:
   (buf, m) = r
   nm.dec(i, seg, n, fm, out, src, dst, buf, m, decode(inp, i))
 
@@ -1068,7 +1068,7 @@ def nm.go(fuel: Nat, c: Cur, +n: U32, +fm: U32) -> Cur:
     case 1n++p:
       nm.go(p, nm.step(c, n, fm), n, fm)
 
-def nm.sent(+n: U32, src: Vec.Vec, dst: Vec.Vec, r: By.Bytes & U32) -> Norm:
+def nm.sent(+n: U32, src: Vec.Vec, dst: Vec.Vec, r: Bytes() & U32) -> Norm:
   (out, on) = r
   Norm{out, Vec.push(src, n), Vec.push(dst, on)}
 
@@ -1077,7 +1077,7 @@ def nm.fin(+n: U32, a: Acc) -> Norm:
     case Acc{out, src, dst, buf}:
       nm.sent(n, src, dst, By.len(out))
 
-def nm.last(+n: U32, +fm: U32, +seg: U32, out: By.Bytes, src: Vec.Vec,
+def nm.last(+n: U32, +fm: U32, +seg: U32, out: Bytes(), src: Vec.Vec,
   dst: Vec.Vec, r: Vec.Vec & U32) -> Norm:
   (buf, +m) = r
   nm.fin(n, flush(out, src, dst, buf, seg, m, fm, U32.is_zero(m)))
@@ -1089,20 +1089,20 @@ def nm.close(c: Cur, +n: U32, +fm: U32) -> Norm:
     case CGo{i, seg, out, src, dst, inp, buf}:
       nm.last(n, fm, seg, out, src, dst, Vec.len(buf))
 
-def nm.st(b: By.Bytes, +n: U32, empty: Bool) -> Cur:
+def nm.st(b: Bytes(), +n: U32, empty: Bool) -> Cur:
   match empty:
     case True{}:
       CEnd{0, By.new(), Vec.new(0), Vec.new(0), b, Vec.new(0)}
     case False{}:
       CGo{0, 0, By.new(), Vec.new(0), Vec.new(0), b, Vec.new(0)}
 
-def nm.start(b: By.Bytes, +n: U32) -> Cur:
+def nm.start(b: Bytes(), +n: U32) -> Cur:
   nm.st(b, n, U32.is_zero(n))
 
-def nm.init(b: By.Bytes, +n: U32, +fm: U32) -> Norm:
+def nm.init(b: Bytes(), +n: U32, +fm: U32) -> Norm:
   nm.close(nm.go(U32.to_nat(U32.inc(n)), nm.start(b, n), n, fm), n, fm)
 
-def norm.n(f: Form, r: By.Bytes & U32) -> Norm:
+def norm.n(f: Form, r: Bytes() & U32) -> Norm:
   (b, n) = r
   nm.init(b, n, fkey(f))
 
@@ -1110,7 +1110,7 @@ def norm.n(f: Form, r: By.Bytes & U32) -> Norm:
 # original and does not hand it back, because the map is what a caller keeps.
 # Fold is simple case folding followed by NFC, which is what a search index
 # wants: one form, folded, composed.
-def norm(b: By.Bytes, f: Form) -> Norm:
+def norm(b: Bytes(), f: Form) -> Norm:
   norm.n(f, By.len(b))
 
 type Bs is Type:
@@ -1173,20 +1173,20 @@ def hi.if(+ln: U32, tiny: Bool) -> U32:
 def hi(+ln: U32) -> U32:
   hi.if(ln, U32.is_lt(ln, 2))
 
-def back.s(out: By.Bytes, dst: Vec.Vec, r: Vec.Vec & (U32 & U32)) ->
+def back.s(out: Bytes(), dst: Vec.Vec, r: Vec.Vec & (U32 & U32)) ->
   Norm & (U32 & U32):
   (src, ab) = r
   (Norm{out, src, dst}, ab)
 
-def back.j(out: By.Bytes, src: Vec.Vec, r: Vec.Vec & U32) -> Norm & (U32 & U32):
+def back.j(out: Bytes(), src: Vec.Vec, r: Vec.Vec & U32) -> Norm & (U32 & U32):
   (dst, j) = r
   back.s(out, dst, rng(src, j))
 
-def back.n(out: By.Bytes, src: Vec.Vec, dst: Vec.Vec, +o: U32, +ln: U32) ->
+def back.n(out: Bytes(), src: Vec.Vec, dst: Vec.Vec, +o: U32, +ln: U32) ->
   Norm & (U32 & U32):
   back.j(out, src, segof(dst, o, hi(ln)))
 
-def back.len(out: By.Bytes, src: Vec.Vec, +o: U32, r: Vec.Vec & U32) ->
+def back.len(out: Bytes(), src: Vec.Vec, +o: U32, r: Vec.Vec & U32) ->
   Norm & (U32 & U32):
   (dst, ln) = r
   back.n(out, src, dst, o, ln)
@@ -1201,20 +1201,20 @@ def back(m: Norm, +o: U32) -> Norm & (U32 & U32):
     case Norm{out, src, dst}:
       back.len(out, src, o, Vec.len(dst))
 
-def fwd.s(out: By.Bytes, src: Vec.Vec, r: Vec.Vec & (U32 & U32)) ->
+def fwd.s(out: Bytes(), src: Vec.Vec, r: Vec.Vec & (U32 & U32)) ->
   Norm & (U32 & U32):
   (dst, ab) = r
   (Norm{out, src, dst}, ab)
 
-def fwd.j(out: By.Bytes, dst: Vec.Vec, r: Vec.Vec & U32) -> Norm & (U32 & U32):
+def fwd.j(out: Bytes(), dst: Vec.Vec, r: Vec.Vec & U32) -> Norm & (U32 & U32):
   (src, j) = r
   fwd.s(out, src, rng(dst, j))
 
-def fwd.n(out: By.Bytes, src: Vec.Vec, dst: Vec.Vec, +o: U32, +ln: U32) ->
+def fwd.n(out: Bytes(), src: Vec.Vec, dst: Vec.Vec, +o: U32, +ln: U32) ->
   Norm & (U32 & U32):
   fwd.j(out, dst, segof(src, o, hi(ln)))
 
-def fwd.len(out: By.Bytes, dst: Vec.Vec, +o: U32, r: Vec.Vec & U32) ->
+def fwd.len(out: Bytes(), dst: Vec.Vec, +o: U32, r: Vec.Vec & U32) ->
   Norm & (U32 & U32):
   (src, ln) = r
   fwd.n(out, src, dst, o, ln)
@@ -1239,9 +1239,9 @@ def span.show(sp: Span) -> String:
         U32.show(s)), "-"), U32.show(e))
 
 type Cp2 is Type:
-  Cp2{i: U32, a: By.Bytes, b: By.Bytes}
+  Cp2{i: U32, a: Bytes(), b: Bytes()}
 
-def sl.put(+i: U32, b: By.Bytes, r: By.Bytes & U32) -> Cp2:
+def sl.put(+i: U32, b: Bytes(), r: Bytes() & U32) -> Cp2:
   (a, x) = r
   Cp2{U32.inc(i), a, By.push(b, x)}
 
@@ -1257,7 +1257,7 @@ def sl.go(fuel: Nat, c: Cp2) -> Cp2:
     case 1n++p:
       sl.go(p, sl.step(c))
 
-def sl.take(c: Cp2) -> By.Bytes & By.Bytes:
+def sl.take(c: Cp2) -> Bytes() & Bytes():
   match c:
     case Cp2{i, a, b}:
       (a, b)
@@ -1265,10 +1265,10 @@ def sl.take(c: Cp2) -> By.Bytes & By.Bytes:
 # slice: the bytes of [s, e) as their own buffer; the original is handed back.
 # This is the other half of a citation -- back gives the range, slice gives the
 # bytes, and re-normalizing those bytes is the law the fixture pins.
-def slice(a: By.Bytes, +s: U32, +e: U32) -> By.Bytes & By.Bytes:
+def slice(a: Bytes(), +s: U32, +e: U32) -> Bytes() & Bytes():
   sl.take(sl.go(U32.to_nat(U32.sub(e, s)), Cp2{s, a, By.new()}))
 
-def nlen.r(src: Vec.Vec, dst: Vec.Vec, r: By.Bytes & U32) -> Norm & U32:
+def nlen.r(src: Vec.Vec, dst: Vec.Vec, r: Bytes() & U32) -> Norm & U32:
   (out, n) = r
   (Norm{out, src, dst}, n)
 
@@ -1277,7 +1277,7 @@ def nlen(m: Norm) -> Norm & U32:
     case Norm{out, src, dst}:
       nlen.r(src, dst, By.len(out))
 
-def nsegs.r(out: By.Bytes, dst: Vec.Vec, r: Vec.Vec & U32) -> Norm & U32:
+def nsegs.r(out: Bytes(), dst: Vec.Vec, r: Vec.Vec & U32) -> Norm & U32:
   (src, ln) = r
   (Norm{out, src, dst}, U32.sub(ln, 1))
 
@@ -1286,17 +1286,17 @@ def nsegs(m: Norm) -> Norm & U32:
     case Norm{out, src, dst}:
       nsegs.r(out, dst, Vec.len(src))
 
-def nslice.r(src: Vec.Vec, dst: Vec.Vec, r: By.Bytes & By.Bytes) ->
-  Norm & By.Bytes:
+def nslice.r(src: Vec.Vec, dst: Vec.Vec, r: Bytes() & Bytes()) ->
+  Norm & Bytes():
   (out, x) = r
   (Norm{out, src, dst}, x)
 
-def nslice(m: Norm, +s: U32, +e: U32) -> Norm & By.Bytes:
+def nslice(m: Norm, +s: U32, +e: U32) -> Norm & Bytes():
   match m:
     case Norm{out, src, dst}:
       nslice.r(src, dst, slice(out, s, e))
 
-def ncps.r(src: Vec.Vec, dst: Vec.Vec, r: By.Bytes & String) -> Norm & String:
+def ncps.r(src: Vec.Vec, dst: Vec.Vec, r: Bytes() & String) -> Norm & String:
   (out, s) = r
   (Norm{out, src, dst}, s)
 

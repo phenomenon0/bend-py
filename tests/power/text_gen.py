@@ -509,18 +509,18 @@ def yn(b: Bool) -> String:
 def w(s: String) -> String:
   "<" ++ s ++ ">"
 
-def cp.s(r: By.Bytes & String) -> String:
+def cp.s(r: Bytes() & String) -> String:
   (b, s) = r
   w(s)
 
-def cp(b: By.Bytes) -> String:
+def cp(b: Bytes()) -> String:
   cp.s(Text.cps(b))
 
-def vd.s(r: By.Bytes & Bool) -> String:
+def vd.s(r: Bytes() & Bool) -> String:
   (b, x) = r
   yn(x)
 
-def vd(b: By.Bytes) -> String:
+def vd(b: Bytes()) -> String:
   vd.s(Text.valid(b))
 
 def nc.s(r: Text.Norm & String) -> String:
@@ -532,20 +532,20 @@ def nc(m: Text.Norm) -> String:
 
 # the inputs: code points folded through Text.emit, so the encoder is on the
 # hook for every row the decoder answers
-def mk.go(xs: List<&2, U32>, b: By.Bytes) -> By.Bytes:
+def mk.go(xs: List<&2, U32>, b: Bytes()) -> Bytes():
   match xs:
     case Nil{}:
       b
     case Con{x, t}:
       mk.go(t, Text.emit(b, x))
 
-def mk(xs: List<&2, U32>) -> By.Bytes:
+def mk(xs: List<&2, U32>) -> Bytes():
   mk.go(xs, By.new())
 
 type Bv is Type:
-  Bv{i: U32, b: By.Bytes, s: String}
+  Bv{i: U32, b: Bytes(), s: String}
 
-def bv.put(+i: U32, s: String, r: By.Bytes & U32) -> Bv:
+def bv.put(+i: U32, s: String, r: Bytes() & U32) -> Bv:
   (b, x) = r
   Bv{U32.inc(i), b, s ++ U32.show(x) ++ " "}
 
@@ -566,11 +566,11 @@ def bv.take(t: Bv) -> String:
     case Bv{i, b, s}:
       w(s)
 
-def bv.n(r: By.Bytes & U32) -> String:
+def bv.n(r: Bytes() & U32) -> String:
   (b, +n) = r
   bv.take(bv.go(U32.to_nat(n), Bv{0, b, ""}))
 
-def bv(b: By.Bytes) -> String:
+def bv(b: Bytes()) -> String:
   bv.n(By.len(b))
 
 type Vs is Type:
@@ -601,18 +601,18 @@ def vs.n(r: Vec.Vec & U32) -> String:
   (v, +n) = r
   vs.take(vs.go(U32.to_nat(n), Vs{0, v, ""}))
 
-def gv(r: By.Bytes & Vec.Vec) -> String:
+def gv(r: Bytes() & Vec.Vec) -> String:
   (b, v) = r
   vs.n(Vec.len(v))
 
 # the original has to outlive the normalizer for the law to be checkable at
 # all, and norm takes its input: a copy through the byte list is the cheapest
 # honest way to hold one
-def dup.mk(r: By.Bytes & List<&2, U32>) -> By.Bytes & By.Bytes:
+def dup.mk(r: Bytes() & List<&2, U32>) -> Bytes() & Bytes():
   (b, xs) = r
   (b, By.from_list(xs, By.new()))
 
-def dup(b: By.Bytes) -> By.Bytes & By.Bytes:
+def dup(b: Bytes()) -> Bytes() & Bytes():
   dup.mk(By.to_list(b))
 
 def dims.s(n: U32, r: Text.Norm & U32) -> String:
@@ -623,55 +623,55 @@ def dims.l(r: Text.Norm & U32) -> String:
   (m, n) = r
   dims.s(n, Text.nsegs(m))
 
-def dims(b: By.Bytes, +f: Text.Form) -> String:
+def dims(b: Bytes(), +f: Text.Form) -> String:
   dims.l(Text.nlen(Text.norm(b, f)))
 
 def rt.cmp(+a: String, b: String) -> String:
   yn(String.eq(a, b)) ++ " " ++ a
 
-def rt.re(seg: String, f: Text.Form, r: By.Bytes & By.Bytes) -> String:
+def rt.re(seg: String, f: Text.Form, r: Bytes() & Bytes()) -> String:
   (o, sl) = r
   rt.cmp(seg, nc(Text.norm(sl, f)))
 
-def rt.sl(seg: String, f: Text.Form, orig: By.Bytes, +s: U32, +e: U32) -> String:
+def rt.sl(seg: String, f: Text.Form, orig: Bytes(), +s: U32, +e: U32) -> String:
   rt.re(seg, f, Text.slice(orig, s, e))
 
-def rt.ns(orig: By.Bytes, f: Text.Form, +s: U32, +e: U32,
-  r: Text.Norm & By.Bytes) -> String:
+def rt.ns(orig: Bytes(), f: Text.Form, +s: U32, +e: U32,
+  r: Text.Norm & Bytes()) -> String:
   (m, x) = r
   rt.sl(cp(x), f, orig, s, e)
 
-def rt.fwd2(orig: By.Bytes, f: Text.Form, +s: U32, +e: U32, m: Text.Norm,
+def rt.fwd2(orig: Bytes(), f: Text.Form, +s: U32, +e: U32, m: Text.Norm,
   dd: U32 & U32) -> String:
   (ds, de) = dd
   rt.ns(orig, f, s, e, Text.nslice(m, ds, de))
 
-def rt.fwd(orig: By.Bytes, f: Text.Form, +s: U32, +e: U32,
+def rt.fwd(orig: Bytes(), f: Text.Form, +s: U32, +e: U32,
   r: Text.Norm & (U32 & U32)) -> String:
   (m, dd) = r
   rt.fwd2(orig, f, s, e, m, dd)
 
-def rt.se(orig: By.Bytes, f: Text.Form, m: Text.Norm, +s: U32, +e: U32) -> String:
+def rt.se(orig: Bytes(), f: Text.Form, m: Text.Norm, +s: U32, +e: U32) -> String:
   rt.fwd(orig, f, s, e, Text.fwd(m, s))
 
-def rt.se2(orig: By.Bytes, f: Text.Form, m: Text.Norm, se: U32 & U32) -> String:
+def rt.se2(orig: Bytes(), f: Text.Form, m: Text.Norm, se: U32 & U32) -> String:
   (s, e) = se
   rt.se(orig, f, m, s, e)
 
-def rt.back(orig: By.Bytes, f: Text.Form, r: Text.Norm & (U32 & U32)) -> String:
+def rt.back(orig: Bytes(), f: Text.Form, r: Text.Norm & (U32 & U32)) -> String:
   (m, se) = r
   rt.se2(orig, f, m, se)
 
-def rt.m(f: Text.Form, +o: U32, orig: By.Bytes, m: Text.Norm) -> String:
+def rt.m(f: Text.Form, +o: U32, orig: Bytes(), m: Text.Norm) -> String:
   rt.back(orig, f, Text.back(m, o))
 
-def rt.d(+f: Text.Form, +o: U32, r: By.Bytes & By.Bytes) -> String:
+def rt.d(+f: Text.Form, +o: U32, r: Bytes() & Bytes()) -> String:
   (a, b) = r
   rt.m(f, o, a, Text.norm(b, f))
 
 # rt: back(o) to a range of the original, slice it out, normalize that slice
 # alone, and hold it against the normalized segment fwd says it became
-def rt(b: By.Bytes, +f: Text.Form, +o: U32) -> String:
+def rt(b: Bytes(), +f: Text.Form, +o: U32) -> String:
   rt.d(f, o, dup(b))
 
 def sp.f(+d: U32, +v: U32, r: Text.Norm & (U32 & U32)) -> String:
@@ -681,12 +681,12 @@ def sp.f(+d: U32, +v: U32, r: Text.Norm & (U32 & U32)) -> String:
 # a citation: the byte range of the original, carried with the document and the
 # revision it was read against, because a range without a revision is a range
 # that will one day point at the wrong bytes
-def sp(b: By.Bytes, +f: Text.Form, +d: U32, +v: U32, +o: U32) -> String:
+def sp(b: Bytes(), +f: Text.Form, +d: U32, +v: U32, +o: U32) -> String:
   sp.f(d, v, Text.back(Text.norm(b, f), o))
 """
 )
 for i, s in SRC:
-    print("def s%d() -> By.Bytes:" % i)
+    print("def s%d() -> Bytes():" % i)
     print("  By.from_list(%s, By.new())\n" % blit(s))
 print("def main() -> IO(Unit):")
 print("  do IO<Unit>:")

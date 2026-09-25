@@ -225,17 +225,17 @@ import ../../power/bytes.bend as Bytes
 import ../../power/blake3.bend as B3
 
 # the official input: the bytes i % 251, repeating
-def fill(fuel: Nat, +i: U32, b: Bytes.Bytes) -> Bytes.Bytes:
+def fill(fuel: Nat, +i: U32, b: Bytes()) -> Bytes():
   match fuel:
     case 0n:
       b
     case 1n++p:
       fill(p, U32.inc(i), Bytes.push(b, U32.mod(i, 251)))
 
-def buf(n: Nat) -> Bytes.Bytes:
+def buf(n: Nat) -> Bytes():
   fill(n, 0, Bytes.new())
 
-def out(r: Bytes.Bytes & B3.Cv) -> String:
+def out(r: Bytes() & B3.Cv) -> String:
   (b, c) = r
   B3.hex(c)
 
@@ -250,11 +250,11 @@ def leaf(+n: Nat, t: U32) -> String:
 
 # two leaves, joined: chunk 0 is the first 1,024 bytes, chunk 1 the rest, and
 # the root is their parent with ROOT set
-def two.join(c0: B3.Cv, r: Bytes.Bytes & B3.Cv) -> String:
+def two.join(c0: B3.Cv, r: Bytes() & B3.Cv) -> String:
   (b, c1) = r
   B3.hex(B3.parent(c0, c1, 8))
 
-def two.right(+nr: U32, r: Bytes.Bytes & B3.Cv) -> String:
+def two.right(+nr: U32, r: Bytes() & B3.Cv) -> String:
   (b, c0) = r
   two.join(c0, B3.chunk(b, 1024, nr, 1, 0))
 
@@ -263,19 +263,19 @@ def two(n: Nat, +nr: U32) -> String:
 
 # four leaves: the same law one level deeper, which is the shape a fork tree of
 # any depth is made of
-def four.d(c0: B3.Cv, c1: B3.Cv, c2: B3.Cv, r: Bytes.Bytes & B3.Cv) -> String:
+def four.d(c0: B3.Cv, c1: B3.Cv, c2: B3.Cv, r: Bytes() & B3.Cv) -> String:
   (b, c3) = r
   B3.hex(B3.parent(B3.parent(c0, c1, 0), B3.parent(c2, c3, 0), 8))
 
-def four.c(c0: B3.Cv, c1: B3.Cv, r: Bytes.Bytes & B3.Cv) -> String:
+def four.c(c0: B3.Cv, c1: B3.Cv, r: Bytes() & B3.Cv) -> String:
   (b, c2) = r
   four.d(c0, c1, c2, B3.chunk(b, 3072, 1024, 3, 0))
 
-def four.b(c0: B3.Cv, r: Bytes.Bytes & B3.Cv) -> String:
+def four.b(c0: B3.Cv, r: Bytes() & B3.Cv) -> String:
   (b, c1) = r
   four.c(c0, c1, B3.chunk(b, 2048, 1024, 2, 0))
 
-def four.a(r: Bytes.Bytes & B3.Cv) -> String:
+def four.a(r: Bytes() & B3.Cv) -> String:
   (b, c0) = r
   four.b(c0, B3.chunk(b, 1024, 1024, 1, 0))
 

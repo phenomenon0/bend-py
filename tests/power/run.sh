@@ -78,7 +78,10 @@ for t in tests/power/*.bend; do
     run oracle "$t" python3 "tests/power/${name}_gen.py"
   fi
   run check "$work/checked" bash -c 'check "$1"' _ "$t"
-  run interpret "$work/expected" bun bend2/main.ts "$t"
+  # a library that forks one array (Array.fork, base's O(1) shared handle)
+  # makes the checker print which defs rely on it; that note is not output
+  run interpret "$work/expected" bash -c 'set -o pipefail; bun bend2/main.ts "$1" 2>&1 |
+    sed "/^All terms check, but .* on unsafe or foreign code:\$/,/^[^-]/{/^All terms check, but/d;/^- /d}"' _ "$t"
   for lane in js c; do
     target="$work/$name"
     [ "$lane" = js ] && target="$target.js"

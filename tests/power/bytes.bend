@@ -13,9 +13,9 @@ type Op is Data:
   Word{i: U32}
 
 def St() -> Type:
-  Bytes.Bytes & List<&2, String>
+  Bytes() & List<&2, String>
 
-def seen(r: Bytes.Bytes & Maybe<&2, U32>, out: List<&2, String>) -> St():
+def seen(r: Bytes() & Maybe<&2, U32>, out: List<&2, String>) -> St():
   (v, m) = r
   match m:
     case None{}:
@@ -23,7 +23,7 @@ def seen(r: Bytes.Bytes & Maybe<&2, U32>, out: List<&2, String>) -> St():
     case Some{x}:
       (v, Con{U32.show(x), out})
 
-def told(r: Bytes.Bytes & Bool, out: List<&2, String>) -> St():
+def told(r: Bytes() & Bool, out: List<&2, String>) -> St():
   (v, b) = r
   match b:
     case True{}:
@@ -31,11 +31,11 @@ def told(r: Bytes.Bytes & Bool, out: List<&2, String>) -> St():
     case False{}:
       (v, Con{"false", out})
 
-def sized(r: Bytes.Bytes & U32, out: List<&2, String>) -> St():
+def sized(r: Bytes() & U32, out: List<&2, String>) -> St():
   (v, n) = r
   (v, Con{U32.show(n), out})
 
-def step(o: Op, v: Bytes.Bytes, out: List<&2, String>) -> St():
+def step(o: Op, v: Bytes(), out: List<&2, String>) -> St():
   match o:
     case Push{x}:
       (Bytes.push(v, x), out)
@@ -70,7 +70,7 @@ def shows(xs: List<&2, U32>) -> List<&2, String>:
     case Con{x, t}:
       Con{U32.show(x), shows(t)}
 
-def last(r: Bytes.Bytes & List<&2, U32>, out: List<&2, String>) -> List<&2, String>:
+def last(r: Bytes() & List<&2, U32>, out: List<&2, String>) -> List<&2, String>:
   (v, xs) = r
   Con{String.join(shows(xs), ", "), out}
 

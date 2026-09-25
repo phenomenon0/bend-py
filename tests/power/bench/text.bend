@@ -36,11 +36,11 @@ def unit() -> List<&2, U32>:
     168, 226, 128, 141, 240, 159, 145, 169, 32, 228, 184, 173, 230, 150, 135,
     13, 10]
 
-def unitb() -> By.Bytes:
+def unitb() -> Bytes():
   By.from_list(unit(), By.new())
 
 type Cb is Type:
-  Cb{j: U32, u: By.Bytes, b: By.Bytes}
+  Cb{j: U32, u: Bytes(), b: Bytes()}
 
 # the unit index wraps by a compare, not by a mod: the mod is paid once, at the
 # start of a range, and never inside the byte loop
@@ -51,7 +51,7 @@ def cb.nx(+j: U32, wrap: Bool) -> U32:
     case False{}:
       j
 
-def cb.put(+j: U32, b: By.Bytes, r: By.Bytes & U32) -> Cb:
+def cb.put(+j: U32, b: Bytes(), r: Bytes() & U32) -> Cb:
   (u, x) = r
   Cb{cb.nx(U32.inc(j), U32.is_eq(j, 47)), u, By.push(b, x)}
 
@@ -67,14 +67,14 @@ def cb.go(fuel: Nat, t: Cb) -> Cb:
     case 1n++p:
       cb.go(p, cb.step(t))
 
-def cb.take(t: Cb) -> By.Bytes:
+def cb.take(t: Cb) -> Bytes():
   match t:
     case Cb{j, u, b}:
       b
 
 # corpus: bytes [s, e) of the endless repetition of unit(). Asking for a range
 # that starts mid-unit is the whole point -- text_par.bend's leaves do.
-def corpus(+s: U32, +e: U32) -> By.Bytes:
+def corpus(+s: U32, +e: U32) -> Bytes():
   cb.take(cb.go(U32.to_nat(U32.sub(e, s)), Cb{U32.mod(s, 48), unitb(), By.new()}))
 
 # knn.bend's hash and knn_par.bend's mixer
@@ -117,7 +117,7 @@ def seq.n(r: Vec.Vec & U32) -> U32:
   (v, +n) = r
   ac.out(ac.go(U32.to_nat(U32.sub(n, 1)), Ac{0, v, 0, 0}))
 
-def seq.v(r: By.Bytes & Vec.Vec) -> U32:
+def seq.v(r: Bytes() & Vec.Vec) -> U32:
   (b, v) = r
   seq.n(Vec.len(v))
 

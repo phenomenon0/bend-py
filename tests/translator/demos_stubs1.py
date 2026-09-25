@@ -1,8 +1,8 @@
 """The stub pass's allow list: ten mined defs, judged by `judge.py --demo <name>`.
 
 Separate from judge.py only because judge.py is at 88% of its ttok cap; the entries
-are the same shape, and `demos(ALPHABET, WS)` takes the judge's value contract rather
-than restating it.
+are the same shape, and `demos(ALPHABET, WS, H)` takes the judge's value contract rather
+than restating it, and its root of the mined trees (H, $PY_MINED_ROOT).
 
 Six of the ten are unannotated in their source: the reviewed signature is the stub in
 `sig`, passed as PY_SIG, and it is a CLAIM, not a coercion -- the kernel checks it
@@ -13,12 +13,8 @@ types could not be defended from the body AND its call sites are not here; see
 docs/omen/lanes/stubs1.md for the ones that were refused for that reason.
 """
 
-from pathlib import Path
 
-H = Path.home() / "Documents/Project"
-
-
-def demos(ALPHABET, WS):
+def demos(ALPHABET, WS, H):
     def word(rng, chars, hi=14):
         return "".join(rng.choice(chars) for _ in range(rng.randrange(0, hi)))
 

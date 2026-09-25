@@ -55,11 +55,11 @@ def unit() -> List<&2, U32>:
     168, 226, 128, 141, 240, 159, 145, 169, 32, 228, 184, 173, 230, 150, 135,
     13, 10]
 
-def unitb() -> By.Bytes:
+def unitb() -> Bytes():
   By.from_list(unit(), By.new())
 
 type Cb is Type:
-  Cb{j: U32, u: By.Bytes, b: By.Bytes}
+  Cb{j: U32, u: Bytes(), b: Bytes()}
 
 def cb.nx(+j: U32, wrap: Bool) -> U32:
   match wrap:
@@ -68,7 +68,7 @@ def cb.nx(+j: U32, wrap: Bool) -> U32:
     case False{}:
       j
 
-def cb.put(+j: U32, b: By.Bytes, r: By.Bytes & U32) -> Cb:
+def cb.put(+j: U32, b: Bytes(), r: Bytes() & U32) -> Cb:
   (u, x) = r
   Cb{cb.nx(U32.inc(j), U32.is_eq(j, 47)), u, By.push(b, x)}
 
@@ -84,12 +84,12 @@ def cb.go(fuel: Nat, t: Cb) -> Cb:
     case 1n++p:
       cb.go(p, cb.step(t))
 
-def cb.take(t: Cb) -> By.Bytes:
+def cb.take(t: Cb) -> Bytes():
   match t:
     case Cb{j, u, b}:
       b
 
-def corpus(+s: U32, +e: U32) -> By.Bytes:
+def corpus(+s: U32, +e: U32) -> Bytes():
   cb.take(cb.go(U32.to_nat(U32.sub(e, s)), Cb{U32.mod(s, 48), unitb(), By.new()}))
 
 def hh(+p: U32) -> U32:
@@ -104,32 +104,32 @@ def mix(+acc: U32, +x: U32) -> U32:
 # -- the backward scan for an anchor ------------------------------------------
 
 type An is Type:
-  An{q: U32, u: By.Bytes, d: U32}
+  An{q: U32, u: Bytes(), d: U32}
 
-def an.hit(+q: U32, u: By.Bytes, yes: Bool) -> An:
+def an.hit(+q: U32, u: Bytes(), yes: Bool) -> An:
   match yes:
     case True{}:
       An{q, u, 1}
     case False{}:
       An{U32.sub(q, 1), u, 0}
 
-def an.ck(+q: U32, r: By.Bytes & U32) -> An:
+def an.ck(+q: U32, r: Bytes() & U32) -> An:
   (u, x) = r
   an.hit(q, u, U32.is_eq(x, 10))
 
 # the byte before q, read out of the unit rather than out of a buffer: nothing
 # has been built yet when the anchor is wanted
-def an.look(+q: U32, u: By.Bytes) -> An:
+def an.look(+q: U32, u: Bytes()) -> An:
   an.ck(q, By.at(u, U32.mod(U32.sub(q, 1), 48)))
 
-def an.top(+q: U32, u: By.Bytes, zero: Bool) -> An:
+def an.top(+q: U32, u: Bytes(), zero: Bool) -> An:
   match zero:
     case True{}:
       An{0, u, 1}
     case False{}:
       an.look(q, u)
 
-def an.on(+q: U32, u: By.Bytes, +d: U32, go: Bool) -> An:
+def an.on(+q: U32, u: Bytes(), +d: U32, go: Bool) -> An:
   match go:
     case True{}:
       an.top(q, u, U32.is_zero(q))
@@ -212,7 +212,7 @@ def leaf.n(+q: U32, +lo: U32, +hi: U32, r: Vec.Vec & U32) -> U32 & U32:
   (v, +n) = r
   ap.out(ap.go(U32.to_nat(U32.sub(n, 1)), q, lo, hi, Ap{0, v, 0, 0}))
 
-def leaf.v(+q: U32, +lo: U32, +hi: U32, r: By.Bytes & Vec.Vec) -> U32 & U32:
+def leaf.v(+q: U32, +lo: U32, +hi: U32, r: Bytes() & Vec.Vec) -> U32 & U32:
   (b, v) = r
   leaf.n(q, lo, hi, Vec.len(v))
 

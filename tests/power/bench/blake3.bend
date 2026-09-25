@@ -18,7 +18,7 @@ import ../../../power/blake3.bend as B3
 def key(+i: U32) -> U32:
   U32.xor(U32.mul(U32.inc(i), 2654435761), U32.shrn(i, 3n))
 
-def fill(fuel: Nat, +i: U32, b: Bytes.Bytes) -> Bytes.Bytes:
+def fill(fuel: Nat, +i: U32, b: Bytes()) -> Bytes():
   match fuel:
     case 0n:
       b
@@ -39,13 +39,13 @@ def cvmix(+acc: U32, c: B3.Cv) -> U32:
       mix(mix(mix(mix(mix(mix(mix(mix(acc, a0), a1), a2), a3), a4), a5), a6), a7)
 
 type Hs is Type:
-  Hs{acc: U32, b: Bytes.Bytes}
+  Hs{acc: U32, b: Bytes()}
 
-def hs.put(acc: U32, r: Bytes.Bytes & B3.Cv) -> Hs:
+def hs.put(acc: U32, r: Bytes() & B3.Cv) -> Hs:
   (b, c) = r
   Hs{cvmix(acc, c), b}
 
-def hs.one(+n: U32, +i: U32, acc: U32, b: Bytes.Bytes) -> Hs:
+def hs.one(+n: U32, +i: U32, acc: U32, b: Bytes()) -> Hs:
   hs.put(acc, B3.hash(b, i, U32.sub(n, i)))
 
 def hs.go(fuel: Nat, +n: U32, +i: U32, s: Hs) -> Hs:

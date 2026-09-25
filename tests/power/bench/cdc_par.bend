@@ -22,7 +22,7 @@ import ../../../power/cdc.bend as Cdc
 def key(+i: U32) -> U32:
   U32.xor(U32.mul(U32.inc(i), 2654435761), U32.shrn(i, 3n))
 
-def fill(fuel: Nat, +i: U32, b: Bytes.Bytes) -> Bytes.Bytes:
+def fill(fuel: Nat, +i: U32, b: Bytes()) -> Bytes():
   match fuel:
     case 0n:
       b

@@ -128,6 +128,22 @@ def search() -> String:
 def group() -> String:
   "def Py.group(m: Py.Match, k: Nat) -> String:\n  match m:\n    case PyMatch{s, mm}:\n      Maybe.default(&2, String, Regex.group(s, mm, k), \"\")\n\n"
 
+# The truth value of a str or a list: non-empty. Python asks `__len__` when
+# there is no `__bool__`, and an exact str or list (A1) has no user hook.
+def truthy() -> String:
+  "def Py.truthy(s: String) -> Bool:\n  Bool.not(String.is_empty(s))\n\n"
+
+def nonempty() -> String:
+  "def Py.nonempty(xs: List<&2, String>) -> Bool:\n  match xs:\n    case Nil{}:\n      False{}\n    case Con{h, t}:\n      True{}\n\n"
+
+# sep.join(xs): Base takes the parts first.
+def join_src() -> String:
+  "def Py.join(+sep: String, xs: List<&2, String>) -> String:\n  String.join(xs, sep)\n\n"
+
+# Iterating a str yields its characters, each a str of length one.
+def chars_src() -> String:
+  "def Py.chars(s: String) -> List<&2, String>:\n  match s:\n    case SNil{}:\n      []\n    case SCon{h, t}:\n      SCon{h, SNil{}} <> Py.chars(t)\n\n"
+
 def contracts() -> List<&2, Contract>:
   [Contract{TStr{}, "strip", [], TStr{}, "String.trim", True{}, True{}, "", ""},
    Contract{TStr{}, "lower", [], TStr{}, "String.to_lower", True{}, True{}, "", ""},
@@ -137,7 +153,24 @@ def contracts() -> List<&2, Contract>:
    Contract{TStr{}, "__eq__", [TStr{}], TBool{}, "String.eq", True{}, True{}, "", ""},
    Contract{TStr{}, "__add__", [TStr{}], TStr{}, "String.append", True{}, True{}, "", ""},
    Contract{TStr{}, "__len__", [], TInt{}, "String.length", True{}, True{}, "", ""},
+   Contract{TStr{}, "__bool__", [], TBool{}, "Py.truthy", True{}, True{}, "", truthy()},
+   Contract{TList{TStr{}}, "__bool__", [], TBool{}, "Py.nonempty", True{}, True{}, "", nonempty()},
    Contract{TInt{}, "__gt__", [TInt{}], TBool{}, "Nat.is_gt", True{}, True{}, "", ""},
+   Contract{TInt{}, "__ge__", [TInt{}], TBool{}, "Nat.is_ge", True{}, True{}, "", ""},
+   Contract{TInt{}, "__lt__", [TInt{}], TBool{}, "Nat.is_lt", True{}, True{}, "", ""},
+   Contract{TInt{}, "__le__", [TInt{}], TBool{}, "Nat.is_le", True{}, True{}, "", ""},
+   Contract{TInt{}, "__eq__", [TInt{}], TBool{}, "Nat.is_eq", True{}, True{}, "", ""},
+   Contract{TInt{}, "__add__", [TInt{}], TInt{}, "Nat.add", True{}, True{}, "", ""},
+   Contract{TStr{}, "__gt__", [TStr{}], TBool{}, "String.is_gt", True{}, True{}, "", ""},
+   Contract{TStr{}, "__ge__", [TStr{}], TBool{}, "String.is_ge", True{}, True{}, "", ""},
+   Contract{TStr{}, "__lt__", [TStr{}], TBool{}, "String.is_lt", True{}, True{}, "", ""},
+   Contract{TStr{}, "__le__", [TStr{}], TBool{}, "String.is_le", True{}, True{}, "", ""},
+   Contract{TStr{}, "endswith", [TStr{}], TBool{}, "String.ends_with", True{}, True{}, "", ""},
+   Contract{TStr{}, "upper", [], TStr{}, "String.to_upper", True{}, True{}, "", ""},
+   Contract{TStr{}, "lstrip", [], TStr{}, "String.trim_start", True{}, True{}, "", ""},
+   Contract{TStr{}, "rstrip", [], TStr{}, "String.trim_end", True{}, True{}, "", ""},
+   Contract{TStr{}, "join", [TList{TStr{}}], TStr{}, "Py.join", True{}, True{}, "", join_src()},
+   Contract{TStr{}, "__iter__", [], TList{TStr{}}, "Py.chars", True{}, True{}, "", chars_src()},
    Contract{TBool{}, "not", [], TBool{}, "Bool.not", True{}, True{}, "", ""},
    Contract{TStr{}, "split(,1)[1]", [TStr{}], TStr{}, "Py.after", True{}, True{}, "String.contains", after()},
    Contract{TStr{}, "strip", [TStr{}], TStr{}, "Py.strip", True{}, True{}, "", strip()},
@@ -750,6 +783,12 @@ def grant(cs: List<&2, Contract>, +recv: Ir, +args: Ir, +attr: String, +loc: S.J
       S.choose(Result<&2, &2, S.Error, Ir>, ok, u => Done{IPrim{bend, IArg{recv, args}, ret, loc}}, u =>
         grant(rest, recv, args, attr, loc))
 
+# What a `for` or a comprehension iterates: a list as it is, a str as the
+# list of its characters (`__iter__`, a granted contract), so both reach the
+# one list fold the kernel checks.
+def iterable(+e: Ir, +cs: List<&2, Contract>, +loc: S.Json) -> Result<&2, &2, S.Error, Ir>:
+  S.choose(Result<&2, &2, S.Error, Ir>, String.eq(ty_of(e), "String"), u => grant(cs, e, IEnd{}, "__iter__", loc), u => Done{e})
+
 def negate(r: Result<&2, &2, S.Error, Ir>, +cs: List<&2, Contract>, +loc: S.Json) -> Result<&2, &2, S.Error, Ir>:
   match r:
     case Done{e}:
@@ -1043,9 +1082,12 @@ def build(+j: S.Json, +kids: Ir, +env: List<&2, Param>, +cs: List<&2, Contract>,
                   S.choose(Result<&2, &2, S.Error, Ir>, String.eq(op, "Eq"), u => grant(cs, a, tl(kids), "__eq__", loc), u =>
                     S.choose(Result<&2, &2, S.Error, Ir>, String.eq(op, "NotEq"), u => negate(grant(cs, a, tl(kids), "__eq__", loc), cs, loc), u =>
                       S.choose(Result<&2, &2, S.Error, Ir>, String.eq(op, "Gt"), u => grant(cs, a, tl(kids), "__gt__", loc), u =>
+                      S.choose(Result<&2, &2, S.Error, Ir>, String.eq(op, "GtE"), u => grant(cs, a, tl(kids), "__ge__", loc), u =>
+                      S.choose(Result<&2, &2, S.Error, Ir>, String.eq(op, "Lt"), u => grant(cs, a, tl(kids), "__lt__", loc), u =>
+                      S.choose(Result<&2, &2, S.Error, Ir>, String.eq(op, "LtE"), u => grant(cs, a, tl(kids), "__le__", loc), u =>
                         S.choose(Result<&2, &2, S.Error, Ir>, String.eq(op, "In"), u => grant(cs, b, IArg{a, IEnd{}}, "__contains__", loc), u =>
                           S.choose(Result<&2, &2, S.Error, Ir>, String.eq(op, "NotIn"), u => negate(grant(cs, b, IArg{a, IEnd{}}, "__contains__", loc), cs, loc), u =>
-                            refuse(&2, Ir, loc, "outside the fragment: " ++ tag ++ S.choose(String, String.eq(op, ""), u => "", u => " " ++ op)))))))))))))))))))
+                            refuse(&2, Ir, loc, "outside the fragment: " ++ tag ++ S.choose(String, String.eq(op, ""), u => "", u => " " ++ op))))))))))))))))))))))
 
 def listy(+e: Ir, what: String) -> Result<&2, &2, S.Error, Unit>:
   S.choose(Result<&2, &2, S.Error, Unit>, String.is_empty(ty(elem(typ(e)))), u =>
@@ -1077,7 +1119,8 @@ def expr(fuel: Nat, +j: S.Json, +env: List<&2, Param>, +cs: List<&2, Contract>, 
             S.choose(Result<&2, &2, S.Error, Ir>, String.eq(tag, "Constant"), u => constant(raw_of(j), ret, loc), u =>
             S.choose(Result<&2, &2, S.Error, Ir>, comp_form(j, env), u =>
               do Result<&2, &2, S.Error, Ir>:
-                +over : Ir <- expr(left, Lint.field(g, "iter"), env, cs, ret, ss)
+                +over0 : Ir <- expr(left, Lint.field(g, "iter"), env, cs, ret, ss)
+                +over : Ir <- iterable(over0, cs, loc)
                 ok : Unit <- listy(over, "comprehension")
                 +body : Ir <- expr(left, Lint.field(j, "elt"), Param{x, elem(typ(over)), loc} <> env, cs, ret, ss)
                 Done{IMap{x, over, body, TList{typ(body)}, loc}}, u =>
@@ -1203,6 +1246,48 @@ def must_bool(+e: Ir) -> Result<&2, &2, S.Error, Unit>:
   S.choose(Result<&2, &2, S.Error, Unit>, String.eq(ty_of(e), "Bool"), u => Done{Unit{}}, u =>
     refuse(&2, Unit, own_loc(e), "truthiness of a non-bool is outside the fragment"))
 
+# A test as Python reads it: its truth value, not its value. Only here --
+# an `if` test -- may a str or a list stand for a Bool: `if s:` is `if s != "":`.
+# `not X` and a two-operand `and`/`or` read their operands as tests too (the
+# truth value of `a and b` is truth(a) and truth(b)); `and`/`or` stay
+# branches, so the right operand runs only when Python runs it. An operand that
+# narrows (`X is None or E`) goes through `expr` whole, as before. A value
+# position -- `x = s or "d"`, which is a str in Python -- is not a test and
+# keeps its refusal.
+def cond(fuel: Nat, +j: S.Json, +env: List<&2, Param>, +cs: List<&2, Contract>, +ret: Ty, +ss: List<&2, Sig>) -> Result<&2, &2, S.Error, Ir>:
+  match fuel:
+    case 0n:
+      fail(&2, Ir, S.Limit{}, S.JNull{}, "elaboration fuel exhausted")
+    case 1n+p:
+      +left = p
+      +tag = Lint.tag_of(j)
+      +loc = Lint.field(j, "_loc")
+      +op = Lint.tag_of(Lint.field(j, "op"))
+      +vs = Lint.items(Lint.field(j, "values"))
+      S.choose(Result<&2, &2, S.Error, Ir>, String.eq(tag, "UnaryOp") && String.eq(op, "Not"), u =>
+        do Result<&2, &2, S.Error, Ir>:
+          +c : Ir <- cond(left, Lint.field(j, "operand"), env, cs, ret, ss)
+          grant(cs, c, IEnd{}, "not", loc), u =>
+        S.choose(Result<&2, &2, S.Error, Ir>, String.eq(tag, "BoolOp") && Nat.is_eq(Lint.size(vs), 2n) && String.is_empty(narrow(j)), u =>
+          do Result<&2, &2, S.Error, Ir>:
+            +a : Ir <- cond(left, Lint.first(vs), env, cs, ret, ss)
+            +b : Ir <- cond(left, Lint.first(tail_of(vs)), env, cs, ret, ss)
+            Done{S.choose(Ir, String.eq(op, "And"), u => IBranch{a, b, lit_bool(False{}, loc), TBool{}, loc}, u => IBranch{a, lit_bool(True{}, loc), b, TBool{}, loc})}, u =>
+          do Result<&2, &2, S.Error, Ir>:
+            +e : Ir <- expr(weight(j), j, env, cs, ret, ss)
+            S.choose(Result<&2, &2, S.Error, Ir>, String.eq(ty_of(e), "String") || String.eq(ty_of(e), "List<&2, String>"), u => grant(cs, e, IEnd{}, "__bool__", loc), u =>
+              Done{e})))
+
+# `x += e` on a str name is `x = x + e`: str is immutable, so Python's `+=`
+# builds a new value and rebinds, exactly as `=` does. On a list `+=` mutates
+# in place (visible through an alias) and is not rewritten.
+def aug_assign(+h: S.Json) -> S.Json:
+  +tgt = Lint.field(h, "target")
+  +loc = Lint.field(h, "_loc")
+  +load : S.Json = S.JObj{S.JField{"tag", S.JStr{"Name"}, S.JField{"id", Lint.field(tgt, "id"), S.JField{"ctx", S.JObj{S.JField{"tag", S.JStr{"Load"}, S.JEnd{}}}, S.JField{"_loc", Lint.field(tgt, "_loc"), S.JEnd{}}}}}}
+  +sum : S.Json = S.JObj{S.JField{"tag", S.JStr{"BinOp"}, S.JField{"left", load, S.JField{"op", Lint.field(h, "op"), S.JField{"right", Lint.field(h, "value"), S.JField{"_loc", loc, S.JEnd{}}}}}}}
+  S.JObj{S.JField{"tag", S.JStr{"Assign"}, S.JField{"targets", S.JArr{S.JItem{tgt, S.JEnd{}}}, S.JField{"value", sum, S.JField{"_loc", loc, S.JEnd{}}}}}}
+
 # Statements. `acc` is "" in a function body, where every path must end in one
 # `return e` (falling off the end, an implicit None, is refused) and the
 # statements after an `if` are its else-continuation -- unless an arm falls
@@ -1237,6 +1322,9 @@ def block(fuel: Nat, xs: S.Json, first: Bool, +near: S.Json, +env: List<&2, Para
       +rt = {TMaybe{ret} : Ty}
       +j = one_name(List.append(&2, String, Lint.binds(Lint.field(h, "body")), Lint.binds(Lint.field(h, "orelse"))), "")
       S.choose(Result<&2, &2, S.Error, Ir>, first && docstring(h), u => block(left, t, False{}, near, env, cs, ret, acc, ss), u =>
+      S.choose(Result<&2, &2, S.Error, Ir>, String.eq(tag, "AugAssign") && String.eq(Lint.tag_of(Lint.field(h, "target")), "Name") &&
+          String.eq(ty(type_in(env, N.string(Lint.field(Lint.field(h, "target"), "id")))), "String"), u =>
+        block(left, S.JItem{aug_assign(h), t}, False{}, near, env, cs, ret, acc, ss), u =>
         S.choose(Result<&2, &2, S.Error, Ir>, String.eq(tag, "Return") && Bool.not(Lint.is_null(val)), u =>
             S.choose(Result<&2, &2, S.Error, Ir>, Bool.not(last), u => refuse(&2, Ir, Lint.field(Lint.first(t), "_loc"), "statement after return"), u =>
               do Result<&2, &2, S.Error, Ir>:
@@ -1265,7 +1353,7 @@ def block(fuel: Nat, xs: S.Json, first: Bool, +near: S.Json, +env: List<&2, Para
               S.choose(Result<&2, &2, S.Error, Ir>, String.eq(j, "") || String.eq(j, "?") || under(S.JItem{h, S.JEnd{}}, "Return", "") || under(S.JItem{h, S.JEnd{}}, "Break", ""), u =>
                 refuse(&2, Ir, loc, "if: an arm that falls through joins exactly one name the arms assign, with no return or break inside"), u =>
                 do Result<&2, &2, S.Error, Ir>:
-                  +c : Ir <- expr(weight(Lint.field(h, "test")), Lint.field(h, "test"), env, cs, ret, ss)
+                  +c : Ir <- cond(weight(Lint.field(h, "test")), Lint.field(h, "test"), env, cs, ret, ss)
                   ok : Unit <- must_bool(c)
                   +yes : Ir <- block(left, body, False{}, loc, env, cs, ret, j, ss)
                   +no : Ir <- block(left, Lint.items(Lint.field(h, "orelse")), False{}, loc, env, cs, ret, j, ss)
@@ -1274,7 +1362,7 @@ def block(fuel: Nat, xs: S.Json, first: Bool, +near: S.Json, +env: List<&2, Para
                   Done{ILet{j, IBranch{c, unlet(yes), unlet(no), typ(yes), loc}, k, loc}}), u =>
             S.choose(Result<&2, &2, S.Error, Ir>, String.eq(tag, "If"), u =>
                 do Result<&2, &2, S.Error, Ir>:
-                  +c : Ir <- expr(weight(Lint.field(h, "test")), Lint.field(h, "test"), env, cs, ret, ss)
+                  +c : Ir <- cond(weight(Lint.field(h, "test")), Lint.field(h, "test"), env, cs, ret, ss)
                   ok : Unit <- must_bool(c)
                   +yes : Ir <- block(left, body, False{}, loc, env, cs, ret, acc, ss)
                   ok : Unit <- falls(loop && Bool.not(last) && Bool.not(stops_all(yes)), t)
@@ -1289,7 +1377,8 @@ def block(fuel: Nat, xs: S.Json, first: Bool, +near: S.Json, +env: List<&2, Para
                       S.choose(Result<&2, &2, S.Error, Ir>, has_name(env, r) || under(S.JItem{h, t}, "Name", r), u =>
                         refuse(&2, Ir, loc, "for: the name " ++ r ++ " is taken"), u =>
                         do Result<&2, &2, S.Error, Ir>:
-                          +over : Ir <- expr(weight(Lint.field(h, "iter")), Lint.field(h, "iter"), env, cs, ret, ss)
+                          +over0 : Ir <- expr(weight(Lint.field(h, "iter")), Lint.field(h, "iter"), env, cs, ret, ss)
+                          +over : Ir <- iterable(over0, cs, loc)
                           ok : Unit <- listy(over, "for")
                           step : Ir <- block(left, body, False{}, loc, Param{x, elem(typ(over)), loc} <> Param{r, rt, loc} <> env, cs, ret, r, ss)
                           k : Ir <- block(left, t, False{}, loc, env, cs, ret, acc, ss)
@@ -1297,13 +1386,14 @@ def block(fuel: Nat, xs: S.Json, first: Bool, +near: S.Json, +env: List<&2, Para
                   S.choose(Result<&2, &2, S.Error, Ir>, String.eq(a, "") || String.eq(a, "?"), u =>
                     refuse(&2, Ir, loc, "for: the body must assign exactly one name bound before the loop (the accumulator)"), u =>
                     do Result<&2, &2, S.Error, Ir>:
-                      +over : Ir <- expr(weight(Lint.field(h, "iter")), Lint.field(h, "iter"), env, cs, ret, ss)
+                      +over0 : Ir <- expr(weight(Lint.field(h, "iter")), Lint.field(h, "iter"), env, cs, ret, ss)
+                      +over : Ir <- iterable(over0, cs, loc)
                       ok : Unit <- listy(over, "for")
                       step : Ir <- block(left, body, False{}, loc, Param{x, elem(typ(over)), loc} <> env, cs, ret, a, ss)
                       k : Ir <- block(left, t, False{}, loc, env, cs, ret, acc, ss)
                       Done{ILet{a, IFold{x, over, a, IVar{a, type_in(env, a), loc}, step, type_in(env, a), loc}, k, loc}}))), u =>
                 S.choose(Result<&2, &2, S.Error, Ir>, String.eq(tag, "Break") && loop && last, u => Done{IStop{IVar{acc, type_in(env, acc), loc}, loc}}, u =>
-                  refuse(&2, Ir, loc, "outside the fragment: statement " ++ tag))))))))))
+                  refuse(&2, Ir, loc, "outside the fragment: statement " ++ tag)))))))))))
     case 1n+p _:
       S.choose(Result<&2, &2, S.Error, Ir>, String.eq(acc, ""), u =>
         refuse(&2, Ir, near, "no return: falling off the end is outside the fragment"), u =>
@@ -2210,6 +2300,202 @@ def scoped(cs: List<&2, Contract>, +re: Bool) -> List<&2, Contract>:
       S.choose(List<&2, Contract>, re || Bool.not(String.starts_with(method, "re.")), u =>
         Contract{r, method, as, ret, bend, pure, total, pre, src} <> more, u => more)
 
+# ---- module constants: substituted where read, dropped from the module ----
+
+# `NAME = v` at the top level, assigned once, v a literal (str, bool, None, a
+# natural) or a list display of str literals. Inside the fragment nothing
+# mutates a value, so a read of NAME is v: each read in a def that does not
+# bind NAME itself (a binding anywhere in a def makes the name local to all
+# of it) becomes v, and the assignment leaves the module, which is then
+# closed (A2). The assumption this adds, beside A2's: no importer rebinds or
+# mutates NAME. Anything else at the top level stays, and is refused as the
+# module-not-closed it is.
+type KD is Data:
+  KD{name: String, val: S.Json}
+
+def lit_items(+xs: S.Json) -> Bool:
+  match xs:
+    case S.JItem{+h, +t}:
+      S.choose(Bool, String.eq(Lint.tag_of(h), "Constant"), u => lit_items(t), u => False{})
+    case _:
+      True{}
+
+def const_value(+v: S.Json) -> Bool:
+  String.eq(Lint.tag_of(v), "Constant") || (String.eq(Lint.tag_of(v), "List") && lit_items(Lint.items(Lint.field(v, "elts"))))
+
+# The one Name target of a top-level Assign, "" otherwise.
+def const_target(+h: S.Json) -> String:
+  +ts = Lint.items(Lint.field(h, "targets"))
+  +t = Lint.first(ts)
+  S.choose(String, String.eq(Lint.tag_of(h), "Assign") && Nat.is_eq(Lint.size(ts), 1n) && String.eq(Lint.tag_of(t), "Name") && const_value(Lint.field(h, "value")),
+    u => N.string(Lint.field(t, "id")), u => "")
+
+# How many top-level statements bind `x` (an Assign target, a def name).
+def binds_top(+body: S.Json, +x: String) -> Nat:
+  match body:
+    case S.JItem{+h, +t}:
+      +here = Lint.has(Lint.binds(Lint.field(h, "targets")), x) || (String.eq(Lint.tag_of(h), "FunctionDef") && String.eq(N.string(Lint.field(h, "name")), x))
+      Nat.add(S.choose(Nat, here, u => 1n, u => 0n), binds_top(t, x))
+    case _:
+      0n
+
+def consts(+all: S.Json, +body: S.Json) -> List<&2, KD>:
+  match body:
+    case S.JItem{+h, +t}:
+      +x = const_target(h)
+      S.choose(List<&2, KD>, Bool.not(String.is_empty(x)) && Nat.is_eq(binds_top(all, x), 1n),
+        u => KD{x, Lint.field(h, "value")} <> consts(all, t), u => consts(all, t))
+    case _:
+      []
+
+def is_konst(+ks: List<&2, KD>, +x: String) -> Bool:
+  match ks:
+    case Nil{}:
+      False{}
+    case KD{+n, +v} <> +t:
+      String.eq(n, x) || is_konst(t, x)
+
+def konst_of(+ks: List<&2, KD>, +x: String) -> S.Json:
+  match ks:
+    case Nil{}:
+      S.JNull{}
+    case KD{+n, +v} <> +t:
+      S.choose(S.Json, String.eq(n, x), u => v, u => konst_of(t, x))
+
+# The constants a def does not shadow: none it binds (its parameters, any
+# name it assigns or loops over).
+def unshadowed(+ks: List<&2, KD>, +own: List<&2, String>) -> List<&2, KD>:
+  match ks:
+    case Nil{}:
+      []
+    case KD{+n, +v} <> +t:
+      S.choose(List<&2, KD>, Lint.has(own, n), u => unshadowed(t, own), u => KD{n, v} <> unshadowed(t, own))
+
+# Every Name read of a constant in `j`, replaced by its value.
+def subst(+j: S.Json, +ks: List<&2, KD>) -> S.Json:
+  match j:
+    case S.JObj{+fs}:
+      +id = N.string(N.get(fs, "id"))
+      S.choose(S.Json, String.eq(N.string(N.get(fs, "tag")), "Name") && String.eq(Lint.tag_of(N.get(fs, "ctx")), "Load") && is_konst(ks, id),
+        u => konst_of(ks, id), u => S.JObj{subst(fs, ks)})
+    case S.JField{+k, +v, +rest}:
+      S.JField{k, subst(v, ks), subst(rest, ks)}
+    case S.JArr{+xs}:
+      S.JArr{subst(xs, ks)}
+    case S.JItem{+h, +t}:
+      S.JItem{subst(h, ks), subst(t, ks)}
+    case _:
+      j
+
+# The module body with the constants dropped and substituted into each def.
+def constant_body(+body: S.Json, +ks: List<&2, KD>) -> S.Json:
+  match body:
+    case S.JItem{+h, +t}:
+      +own = Lint.binds(h)
+      S.choose(S.Json, Bool.not(String.is_empty(const_target(h))) && is_konst(ks, const_target(h)), u => constant_body(t, ks), u =>
+        S.choose(S.Json, String.eq(Lint.tag_of(h), "FunctionDef"), u => S.JItem{subst(h, unshadowed(ks, own)), constant_body(t, ks)}, u =>
+          S.JItem{h, constant_body(t, ks)}))
+    case _:
+      S.JEnd{}
+
+# ---- default values: filled at the call, stripped from the header ----
+
+# A module def whose defaults are all literals (strings, naturals, True, False,
+# None). A literal default is one immutable value, evaluated once when the def
+# runs; a call that omits it means that value. So each call in the module
+# that omits trailing parameters gets the header's literals appended, and the
+# header loses its defaults: every call the kernel then sees is a full one.
+# Another default (a name, a call, a display) is left in place and refused
+# as before, and a keyword call is untouched (refused as before). Untrusted,
+# like all elaboration: the result is elaborated and verified as written.
+type DefD is Data:
+  DefD{name: String, n: Nat, ds: S.Json}
+
+def lit_defaults(+ds: S.Json) -> Bool:
+  match ds:
+    case S.JItem{+h, +t}:
+      S.choose(Bool, String.eq(Lint.tag_of(h), "Constant"), u => lit_defaults(t), u => False{})
+    case _:
+      True{}
+
+def dflts(+body: S.Json) -> List<&2, DefD>:
+  match body:
+    case S.JItem{+h, +t}:
+      +a = Lint.field(h, "args")
+      +ds = Lint.items(Lint.field(a, "defaults"))
+      S.choose(List<&2, DefD>, String.eq(Lint.tag_of(h), "FunctionDef") && Bool.not(Lint.is_empty(Lint.field(a, "defaults"))) && lit_defaults(ds),
+        u => DefD{N.string(Lint.field(h, "name")), Lint.size(Lint.items(Lint.field(a, "args"))), ds} <> dflts(t), u => dflts(t))
+    case _:
+      []
+
+def find_d(+dd: List<&2, DefD>, +id: String) -> Maybe<&2, DefD>:
+  match dd:
+    case Nil{}:
+      None{}
+    case DefD{+n, +k, +ds} <> +t:
+      S.choose(Maybe<&2, DefD>, String.eq(n, id), u => Some{DefD{n, k, ds}}, u => find_d(t, id))
+
+def jdrop(i: Nat, js: S.Json) -> S.Json:
+  match i js:
+    case 0n x:
+      x
+    case 1n+p S.JItem{h, t}:
+      jdrop(p, t)
+    case _ _:
+      S.JEnd{}
+
+# The call's arguments with the omitted trailing defaults appended.
+def filled(+d: Maybe<&2, DefD>, +args: S.Json) -> S.Json:
+  match d:
+    case None{}:
+      args
+    case Some{DefD{+name, +n, +ds}}:
+      +k = Lint.size(args)
+      +first = Nat.sub(n, Lint.size(ds))
+      S.choose(S.Json, Nat.is_ge(k, first) && Nat.is_lt(k, n), u => chain(args, jdrop(Nat.sub(k, first), ds)), u => args)
+
+def set_field(+fs: S.Json, +key: String, +v: S.Json) -> S.Json:
+  match fs:
+    case S.JField{+k, +old, +rest}:
+      S.choose(S.Json, String.eq(k, key), u => S.JField{k, v, rest}, u => S.JField{k, old, set_field(rest, key, v)})
+    case _:
+      fs
+
+def fields(+j: S.Json) -> S.Json:
+  match j:
+    case S.JObj{+fs}:
+      fs
+    case _:
+      S.JEnd{}
+
+# One node, its children already filled: a call to a def with literal
+# defaults gets them; that def's header loses them.
+def fill_obj(+fs: S.Json, +dd: List<&2, DefD>) -> S.Json:
+  +tag = N.string(N.get(fs, "tag"))
+  +f = N.get(fs, "func")
+  +call = String.eq(tag, "Call") && String.eq(Lint.tag_of(f), "Name") && Lint.is_empty(N.get(fs, "keywords"))
+  +dfn = String.eq(tag, "FunctionDef") && Maybe.is_some(&2, DefD, find_d(dd, N.string(N.get(fs, "name"))))
+  S.choose(S.Json, call, u => set_field(fs, "args", S.JArr{filled(find_d(dd, N.string(Lint.field(f, "id"))), Lint.items(N.get(fs, "args")))}), u =>
+    S.choose(S.Json, dfn, u => set_field(fs, "args", S.JObj{set_field(fields(N.get(fs, "args")), "defaults", S.JArr{S.JEnd{}})}), u => fs))
+
+def fill(+j: S.Json, +dd: List<&2, DefD>) -> S.Json:
+  match j:
+    case S.JObj{+fs}:
+      S.JObj{fill_obj(fill(fs, dd), dd)}
+    case S.JField{+k, +v, +rest}:
+      S.JField{k, fill(v, dd), fill(rest, dd)}
+    case S.JArr{+xs}:
+      S.JArr{fill(xs, dd)}
+    case S.JItem{+h, +t}:
+      S.JItem{fill(h, dd), fill(t, dd)}
+    case _:
+      j
+
+def defaulted(+m: S.Module) -> S.Module:
+  S.Module{+body0} = m
+  +body = constant_body(body0, consts(body0, body0))
+  S.Module{fill(body, dflts(body))}
+
 # An empty `name` is the whole module, every top-level def with the calls
 # between them (T4); otherwise the one def named, as T1-T3.
 def whole(+m: S.Module, +g: S.Module, +on: List<&2, Contract>, +name: String) -> Result<&2, &2, S.Error, String>:
@@ -2226,7 +2512,8 @@ def whole(+m: S.Module, +g: S.Module, +on: List<&2, Contract>, +name: String) ->
 def translate_as(source: String, sig: String, cs: List<&2, Contract>, +name: String) -> Result<&2, &2, S.Error, String>:
   do Result<&2, &2, S.Error, String>:
     ts : List<&2, S.Tok> <- L.lex(source)
-    m : S.Module <- P.parse(ts)
+    m0 : S.Module <- P.parse(ts)
+    +m : S.Module <- Done{defaulted(m0)}
     ss : List<&2, S.Tok> <- L.lex(sig)
     +g : S.Module <- P.parse(ss)
     +on : List<&2, Contract> <- Done{scoped(cs, imports_re(Lint.items(Lint.field(S.module(g), "body"))))}

@@ -24,7 +24,7 @@ import ./rng.bend as Rng
 # array and an array has a single owner: handing back a (Bytes, Vec, U32)
 # triple every call would make the table the caller's problem.
 type Cdc is Type:
-  Cdc{g: Vec.Vec, b: Bytes.Bytes}
+  Cdc{g: Vec.Vec, b: Bytes()}
 
 # The gear table is 256 words that need to spread a byte across 32 bits and
 # nothing more -- no collision resistance, no structure. Threefry draws them,
@@ -41,11 +41,11 @@ def gear() -> Vec.Vec:
   tbl.go(256n, 0, Vec.new(0))
 
 # new: a chunker over b
-def new(b: Bytes.Bytes) -> Cdc:
+def new(b: Bytes()) -> Cdc:
   Cdc{gear(), b}
 
 # into: the buffer back, the table dropped
-def into(c: Cdc) -> Bytes.Bytes:
+def into(c: Cdc) -> Bytes():
   match c:
     case Cdc{g, b}:
       b
@@ -66,30 +66,30 @@ def avg(+bits: U32) -> U32:
 # -- the scan ----------------------------------------------------------------
 
 type Cs is Type:
-  CGo{i: U32, h: U32, g: Vec.Vec, b: Bytes.Bytes}
-  CHit{i: U32, g: Vec.Vec, b: Bytes.Bytes}
+  CGo{i: U32, h: U32, g: Vec.Vec, b: Bytes()}
+  CHit{i: U32, g: Vec.Vec, b: Bytes()}
 
-def cs.tst(i: U32, h: U32, g: Vec.Vec, b: Bytes.Bytes, hit: Bool) -> Cs:
+def cs.tst(i: U32, h: U32, g: Vec.Vec, b: Bytes(), hit: Bool) -> Cs:
   match hit:
     case True{}:
       CHit{i, g, b}
     case False{}:
       CGo{i, h, g, b}
 
-def cs.new(i: U32, +h: U32, msk: U32, g: Vec.Vec, b: Bytes.Bytes) -> Cs:
+def cs.new(i: U32, +h: U32, msk: U32, g: Vec.Vec, b: Bytes()) -> Cs:
   cs.tst(i, h, g, b, U32.is_zero(U32.and(h, msk)))
 
-def cs.fin(+i: U32, +h: U32, msk: U32, b: Bytes.Bytes, r: Vec.Vec & U32) -> Cs:
+def cs.fin(+i: U32, +h: U32, msk: U32, b: Bytes(), r: Vec.Vec & U32) -> Cs:
   (g, x) = r
   cs.new(U32.inc(i), U32.add(U32.shln(h, 1n), x), msk, g, b)
 
-def cs.gear(i: U32, h: U32, msk: U32, g: Vec.Vec, r: Bytes.Bytes & U32) -> Cs:
+def cs.gear(i: U32, h: U32, msk: U32, g: Vec.Vec, r: Bytes() & U32) -> Cs:
   (b, x) = r
   cs.fin(i, h, msk, b, Vec.at(g, x))
 
 # one byte: roll it in, then test. A hit records the index one past the byte
 # that caused it, which is the length of the chunk from the scan's start.
-def cs.one(+i: U32, h: U32, msk: U32, g: Vec.Vec, b: Bytes.Bytes) -> Cs:
+def cs.one(+i: U32, h: U32, msk: U32, g: Vec.Vec, b: Bytes()) -> Cs:
   cs.gear(i, h, msk, g, Bytes.at(b, i))
 
 # CHit returns without recursing, so the loop stops at the cut and the fuel is

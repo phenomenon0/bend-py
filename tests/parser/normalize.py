@@ -2,9 +2,10 @@
 import os
 import sys
 
-ORACLE = "/home/omen/.hermes/hermes-agent/venv/bin/python3"
+# $PY_ORACLE, else this interpreter; either way it must be the pinned version.
+ORACLE = os.environ.get("PY_ORACLE") or sys.executable
 VERSION = (3, 11, 15)
-if os.path.abspath(sys.executable) != ORACLE:
+if os.path.abspath(sys.executable) != os.path.abspath(ORACLE):
     os.execv(ORACLE, [ORACLE, *sys.argv])
 if sys.version_info[:3] != VERSION or sys.implementation.name != "cpython":
     raise SystemExit(f"Pinned oracle changed: {ORACLE}: {sys.version}")

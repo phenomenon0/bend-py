@@ -17,18 +17,18 @@ def mix(+i: U32) -> U32:
   +h2 = U32.mul(U32.xor(h1, U32.shrn(h1, 13n)), 3266489909)
   U32.xor(h2, U32.shrn(h2, 16n))
 
-def fill(fuel: Nat, +i: U32, b: Bytes.Bytes) -> Bytes.Bytes:
+def fill(fuel: Nat, +i: U32, b: Bytes()) -> Bytes():
   match fuel:
     case 0n:
       b
     case 1n++p:
       fill(p, U32.inc(i), Bytes.push(b, U32.and(mix(i), 255)))
 
-def buf(n: Nat, seed: U32) -> Bytes.Bytes:
+def buf(n: Nat, seed: U32) -> Bytes():
   fill(n, seed, Bytes.new())
 
 # the same stream with one byte pushed in at p, so every later index shifts
-def sbuf(n1: Nat, n2: Nat, +seed: U32, +p: U32) -> Bytes.Bytes:
+def sbuf(n1: Nat, n2: Nat, +seed: U32, +p: U32) -> Bytes():
   fill(n2, U32.add(seed, p), Bytes.push(fill(n1, seed, Bytes.new()), 255))
 
 def shows(xs: List<&2, U32>) -> List<&2, String>:

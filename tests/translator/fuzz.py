@@ -42,6 +42,7 @@ class Gen:
     def __init__(self, rng):
         self.r = rng
         self.defs = []  # (name, [param types], return type)
+        self.ndef = {}  # name -> how many trailing parameters have literal defaults
 
     def p(self, pct):
         return self.r.random() * 100 < pct
@@ -67,7 +68,8 @@ class Gen:
         if calls and self.p(12):
             dn = self.pick(calls)
             ps = [ps for n, ps, _ in self.defs if n == dn][0]
-            return f"{dn}({', '.join(self.expr(env, pt, d + 1) for pt in ps)})"
+            k = len(ps) - (self.r.randint(0, self.ndef.get(dn, 0)) if self.p(60) else 0)  # omit defaulted tails
+            return f"{dn}({', '.join(self.expr(env, pt, d + 1) for pt in ps[:k])})"
         if t == "str":
             s = lambda: self.expr(env, "str", d + 1)
             return self.pick([
@@ -77,6 +79,8 @@ class Gen:
                 lambda: f"{s()}[{self.r.randint(0, 3)}:]",
                 lambda: f"{s()}[:-{self.r.randint(1, 3)}]",
                 lambda: f"({s()} if {self.expr(env, 'bool', d + 1)} else {s()})",
+                lambda: f"{s()}.upper()", lambda: f"{s()}.lstrip()", lambda: f"{s()}.rstrip()",
+                lambda: f"{self.lit()}.join({self.expr(env, 'list[str]', d + 1)})",
             ])()
         if t == "bool":
             s = lambda: self.expr(env, "str", d + 1)
@@ -86,6 +90,9 @@ class Gen:
                 lambda: f"{s()}.startswith({s()})", lambda: f"(not {b()})",
                 lambda: f"({b()} and {b()})", lambda: f"({b()} or {b()})",
                 lambda: f"(len({s()}) > {self.r.randint(0, 4)})",
+                lambda: f"({s()} {self.pick(['<', '<=', '>', '>='])} {s()})",
+                lambda: f"{s()}.endswith({s()})",
+                lambda: f"((len({s()}) + len({s()})) {self.pick(['<', '<=', '>=', '=='])} {self.r.randint(0, 6)})",
             ])()
         if t == "list[str]":
             s = lambda: self.expr(env, "str", d + 1)
@@ -96,6 +103,18 @@ class Gen:
                 lambda: f"[x.strip() for x in {self.expr(env, 'list[str]', d + 1)}]",
             ])()
         return self.expr(env, "str", d + 1) if self.p(60) else "None"  # str | None
+
+    def test(self, env):
+        """An `if` test: a bool, or a str / list read for its truth value."""
+        k = self.r.randint(0, 5)
+        if k <= 2:
+            return self.expr(env, "bool")
+        leaf = lambda: self.expr(env, self.pick(["str", "list[str]", "bool"]))
+        if k == 3:
+            return leaf()
+        if k == 4:
+            return f"not {leaf()}"
+        return f"{leaf()} {self.pick(['and', 'or'])} {leaf()}"
 
     def block(self, env, ret, ind, depth, in_loop=False):
         pad = "    " * ind
@@ -112,7 +131,7 @@ class Gen:
             elif k <= 5 and depth < 2:
                 # a branch returns, or both sides bind the same name (the join)
                 if self.p(50):
-                    out.append(f"{pad}if {self.expr(env, 'bool')}:")
+                    out.append(f"{pad}if {self.test(env)}:")
                     out.append(f"{pad}    return {self.expr(env, ret)}")
                 else:
                     t = self.pick(["str", "bool"])
@@ -122,7 +141,7 @@ class Gen:
                     out.append(f"{pad}else:")
                     out.append(f"{pad}    {n} = {self.expr(env, t)}")
                     env[n] = t
-            elif k <= 7 and depth < 2 and self.names(env, "list[str]"):
+            elif k <= 7 and depth < 2 and (self.names(env, "list[str]") or self.names(env, "str")):
                 # the fold shape: one accumulator bound before the loop, assigned in
                 # the body, and/or an early return or break on a guard
                 acc = self.pick(["acc", "best"])
@@ -132,13 +151,17 @@ class Gen:
                 env[acc] = "str"
                 inner = dict(env)
                 inner["x"] = "str"
-                out.append(f"{pad}for x in {self.pick(self.names(env, 'list[str]'))}:")
+                seqs = self.names(env, "list[str]") + (self.names(env, "str") if self.p(40) else [])
+                out.append(f"{pad}for x in {self.pick(seqs or self.names(env, 'str'))}:")
                 exit_ = self.p(50)
                 if exit_:
                     out.append(f"{pad}    if {self.expr(inner, 'bool')}:")
                     out.append(f"{pad}        " + (f"return {self.expr(inner, ret)}" if self.p(60) else "break"))
                 if not exit_ or self.p(60):
                     out.append(f"{pad}    {acc} = {self.expr(inner, 'str')}")
+            elif k == 8 and self.names(env, "str") and self.p(40):
+                n = self.pick(self.names(env, "str"))
+                out.append(f"{pad}{n} += {self.expr(env, 'str')}")
             elif k == 8 and self.names(env, "str"):
                 # the guarded partial: split(sep, 1)[1] only where sep is known in the string
                 s = self.pick(self.names(env, "str"))
@@ -163,13 +186,34 @@ class Gen:
 
     def module(self):
         lines = []
+        # module constants, read (never bound) inside the defs
+        self.konsts = {}
+        for i in range(self.r.randint(0, 2) if self.p(40) else 0):
+            k, t = f"K{i}", self.pick(["str", "str", "bool", "list[str]"])
+            v = {"str": self.lit, "bool": lambda: self.pick(["True", "False"]),
+                 "list[str]": lambda: "[" + ", ".join(self.lit() for _ in range(self.r.randint(1, 3))) + "]"}[t]()
+            lines.append(f"{k} = {v}")
+            self.konsts[k] = t
+        if self.konsts:
+            lines.append("")
         for i in range(self.r.randint(1, 3)):
             name = f"f{i}"
             ps = [self.pick(TYPES) for _ in range(self.r.randint(1, 3))]
             ret = self.pick(["str", "str", "bool", "str | None", "list[str]"])
             params = [f"p{j}" for j in range(len(ps))]
-            env = dict(zip(params, ps))
-            lines.append(f"def {name}({', '.join(f'{p}: {t}' for p, t in zip(params, ps))}) -> {ret}:")
+            env = {**self.konsts, **dict(zip(params, ps))}
+            nd = 0
+            if self.p(35):
+                nd = sum(1 for _ in range(self.r.randint(1, len(ps))))
+                while nd and ps[len(ps) - nd] == "list[str]":
+                    nd -= 1  # a list default is not a literal
+                nd = min(nd, len([t for t in ps[len(ps) - nd:] if t != "list[str]"])) if nd else 0
+                if any(t == "list[str]" for t in ps[len(ps) - nd:]):
+                    nd = 0
+            self.ndef[name] = nd
+            lit = {"str": lambda: repr(self.pick(LITS)), "bool": lambda: self.pick(["True", "False"]), "str | None": lambda: "None"}
+            heads = [f"{p}: {t}" + (f" = {lit[t]()}" if j >= len(ps) - nd else "") for j, (p, t) in enumerate(zip(params, ps))]
+            lines.append(f"def {name}({', '.join(heads)}) -> {ret}:")
             lines += self.block(env, ret, 1, 0)
             lines.append(f"    return {self.expr(env, ret)}")
             lines.append("")

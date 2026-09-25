@@ -212,28 +212,28 @@ def parent(l: Cv, r: Cv, +fl: U32) -> Cv:
 # valid low bytes masked if it straddles it, and zero past it. BLAKE3 pads the
 # last block of a chunk with zeros; at wraps at the capacity rather than
 # faulting, so the mask is the whole of the padding.
-def w.mask(k: Nat, r: Bytes.Bytes & U32) -> Bytes.Bytes & U32:
+def w.mask(k: Nat, r: Bytes() & U32) -> Bytes() & U32:
   (b, x) = r
   (b, U32.and(x, U32.sub(U32.shln(1, k), 1)))
 
-def w.part(b: Bytes.Bytes, +o: U32, e: U32) -> Bytes.Bytes & U32:
+def w.part(b: Bytes(), +o: U32, e: U32) -> Bytes() & U32:
   w.mask(U32.to_nat(U32.shln(U32.sub(e, o), 3n)), Bytes.word_le(b, o))
 
-def w.if(b: Bytes.Bytes, +o: U32, +e: U32, some: Bool) -> Bytes.Bytes & U32:
+def w.if(b: Bytes(), +o: U32, +e: U32, some: Bool) -> Bytes() & U32:
   match some:
     case True{}:
       w.part(b, o, e)
     case False{}:
       (b, 0)
 
-def w.go(b: Bytes.Bytes, +o: U32, +e: U32, full: Bool) -> Bytes.Bytes & U32:
+def w.go(b: Bytes(), +o: U32, +e: U32, full: Bool) -> Bytes() & U32:
   match full:
     case True{}:
       Bytes.word_le(b, o)
     case False{}:
       w.if(b, o, e, U32.is_lt(o, e))
 
-def w(b: Bytes.Bytes, +o: U32, +e: U32) -> Bytes.Bytes & U32:
+def w(b: Bytes(), +o: U32, +e: U32) -> Bytes() & U32:
   w.go(b, o, e, U32.is_lt(U32.add(o, 3), e))
 
 # the block is filled by a shift register rather than a sixteen-deep ladder: a
@@ -247,9 +247,9 @@ def bk.push(m: Bk, x: U32) -> Bk:
       Bk{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, x}
 
 type Rd is Type:
-  Rd{o: U32, e: U32, m: Bk, b: Bytes.Bytes}
+  Rd{o: U32, e: U32, m: Bk, b: Bytes()}
 
-def rd.step(o: U32, e: U32, m: Bk, r: Bytes.Bytes & U32) -> Rd:
+def rd.step(o: U32, e: U32, m: Bk, r: Bytes() & U32) -> Rd:
   (b, x) = r
   Rd{o, e, bk.push(m, x), b}
 
@@ -265,13 +265,14 @@ def rd.go(fuel: Nat, s: Rd) -> Rd:
     case 1n++p:
       rd.go(p, rd.one(s))
 
-def blk.out(s: Rd) -> Bytes.Bytes & Bk:
+def blk.out(s: Rd) -> Bytes() & Bk:
   match s:
     case Rd{o, e, m, b}:
       (b, m)
 
-# blk: the 64-byte block at o, zero-padded past the content end e
-def blk(b: Bytes.Bytes, o: U32, e: U32) -> Bytes.Bytes & Bk:
+# blk: the 64-byte block at o, zero-padded past the content end e, its words
+# read where they lie in the buffer (a borrowed read on C, an index on JS)
+def blk(b: Bytes(), o: U32, e: U32) -> Bytes() & Bk:
   blk.out(rd.go(16n, Rd{o, e, Bk{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, b}))
 
 # -- one chunk ---------------------------------------------------------------
@@ -284,10 +285,10 @@ def bit(b: Bool, +x: U32) -> U32:
       0
 
 type Ck is Type:
-  Ck{cv: Cv, o: U32, e: U32, t: U32, fl: U32, i: U32, b: Bytes.Bytes}
+  Ck{cv: Cv, o: U32, e: U32, t: U32, fl: U32, i: U32, b: Bytes()}
 
 def ck.put(+o: U32, +e: U32, +t: U32, +fl: U32, +i: U32, cv: Cv, bl: U32, f: U32,
-           r: Bytes.Bytes & Bk) -> Ck:
+           r: Bytes() & Bk) -> Ck:
   (b, m) = r
   Ck{compress(cv, m, t, 0, bl, f), U32.add(o, 64), e, t, fl, U32.inc(i), b}
 
@@ -296,7 +297,7 @@ def ck.put(+o: U32, +e: U32, +t: U32, +fl: U32, +i: U32, cv: Cv, bl: U32, f: U32
 # closing block alone: a root is the last compression of the tree, not every
 # compression of its one chunk, and setting it on all sixteen blocks of a full
 # chunk is a hash that agrees with BLAKE3 only while the chunk is one block.
-def ck.one(+o: U32, +e: U32, +t: U32, +fl: U32, +i: U32, cv: Cv, b: Bytes.Bytes) -> Ck:
+def ck.one(+o: U32, +e: U32, +t: U32, +fl: U32, +i: U32, cv: Cv, b: Bytes()) -> Ck:
   ck.put(o, e, t, fl, i, cv,
     U32.min(U32.sub(e, o), 64),
     U32.or(bit(U32.is_zero(i), 1), bit(U32.is_lt(e, U32.add(o, 65)), U32.or(2, fl))),
@@ -311,7 +312,7 @@ def ck.go(fuel: Nat, s: Ck) -> Ck:
         case Ck{cv, o, e, t, fl, i, b}:
           ck.go(p, ck.one(o, e, t, fl, i, cv, b))
 
-def ck.out(s: Ck) -> Bytes.Bytes & Cv:
+def ck.out(s: Ck) -> Bytes() & Cv:
   match s:
     case Ck{cv, o, e, t, fl, i, b}:
       (b, cv)
@@ -322,7 +323,7 @@ def blocks(+n: U32) -> Nat:
 
 # chunk: the chaining value of the n bytes at off as chunk number t. fl is 0
 # for a leaf of a tree and ROOT when the chunk is the whole message.
-def chunk(b: Bytes.Bytes, +off: U32, +n: U32, t: U32, fl: U32) -> Bytes.Bytes & Cv:
+def chunk(b: Bytes(), +off: U32, +n: U32, t: U32, fl: U32) -> Bytes() & Cv:
   ck.out(ck.go(blocks(n), Ck{iv(), off, U32.add(off, n), t, fl, 0, b}))
 
 # -- the chunk stack ---------------------------------------------------------
@@ -368,9 +369,9 @@ def mg.go(fuel: Nat, m: Mg) -> List<&2, Cv>:
           mg.go(p, mg.step(t, c, st))
 
 type Hs is Type:
-  Hs{o: U32, t: U32, st: List<&2, Cv>, b: Bytes.Bytes}
+  Hs{o: U32, t: U32, st: List<&2, Cv>, b: Bytes()}
 
-def hs.put(+o: U32, +t: U32, st: List<&2, Cv>, r: Bytes.Bytes & Cv) -> Hs:
+def hs.put(+o: U32, +t: U32, st: List<&2, Cv>, r: Bytes() & Cv) -> Hs:
   (b, cv) = r
   Hs{U32.add(o, 1024), U32.inc(t), mg.go(32n, mg.step(U32.inc(t), cv, st)), b}
 
@@ -398,21 +399,21 @@ def fin.go(st: List<&2, Cv>, c: Cv) -> Cv:
         case Con{h2, t2}:
           fin.go(Con{h2, t2}, parent(h, c, 0))
 
-def hash.fin(st: List<&2, Cv>, r: Bytes.Bytes & Cv) -> Bytes.Bytes & Cv:
+def hash.fin(st: List<&2, Cv>, r: Bytes() & Cv) -> Bytes() & Cv:
   (b, c) = r
   (b, fin.go(st, c))
 
-def hash.last(+e: U32, s: Hs) -> Bytes.Bytes & Cv:
+def hash.last(+e: U32, s: Hs) -> Bytes() & Cv:
   match s:
     case Hs{+o, t, st, b}:
       hash.fin(st, chunk(b, o, U32.sub(e, o), t, 0))
 
 # every chunk but the last goes through the stack; the last one stays out of it
 # so that the final join is the one that carries ROOT
-def hash.big(b: Bytes.Bytes, +off: U32, +n: U32, nc: U32) -> Bytes.Bytes & Cv:
+def hash.big(b: Bytes(), +off: U32, +n: U32, nc: U32) -> Bytes() & Cv:
   hash.last(U32.add(off, n), hs.go(U32.to_nat(U32.sub(nc, 1)), Hs{off, 0, [], b}))
 
-def hash.if(b: Bytes.Bytes, +off: U32, +n: U32, one: Bool) -> Bytes.Bytes & Cv:
+def hash.if(b: Bytes(), +off: U32, +n: U32, one: Bool) -> Bytes() & Cv:
   match one:
     case True{}:
       chunk(b, off, n, 0, 8)
@@ -421,15 +422,15 @@ def hash.if(b: Bytes.Bytes, +off: U32, +n: U32, one: Bool) -> Bytes.Bytes & Cv:
 
 # hash: the BLAKE3 root of the n bytes at off. A message of one chunk or less
 # is that chunk hashed as the root; anything longer is the tree.
-def hash(b: Bytes.Bytes, +off: U32, +n: U32) -> Bytes.Bytes & Cv:
+def hash(b: Bytes(), +off: U32, +n: U32) -> Bytes() & Cv:
   hash.if(b, off, n, U32.is_lt(n, 1025))
 
-def all.len(r: Bytes.Bytes & U32) -> Bytes.Bytes & Cv:
+def all.len(r: Bytes() & U32) -> Bytes() & Cv:
   (b, n) = r
   hash(b, 0, n)
 
 # hash_all: the root of the whole buffer
-def hash_all(b: Bytes.Bytes) -> Bytes.Bytes & Cv:
+def hash_all(b: Bytes()) -> Bytes() & Cv:
   all.len(Bytes.len(b))
 
 # -- the address as text -----------------------------------------------------

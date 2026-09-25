@@ -472,19 +472,19 @@ import ../../power/bytes.bend as Bytes
 import ../../power/grammar.bend as Gr
 
 # ascii only: this is a byte grammar and utf-8 inside a string is not its job
-def of.push(c: Char, b: Bytes.Bytes) -> Bytes.Bytes:
+def of.push(c: Char, b: Bytes()) -> Bytes():
   match c:
     case Chr{code}:
       Bytes.push(b, code)
 
-def of.go(s: String, b: Bytes.Bytes) -> Bytes.Bytes:
+def of.go(s: String, b: Bytes()) -> Bytes():
   match s:
     case SNil{}:
       b
     case SCon{h, t}:
       of.go(t, of.push(h, b))
 
-def of(s: String) -> Bytes.Bytes:
+def of(s: String) -> Bytes():
   of.go(s, Bytes.new())
 
 def yn(t: Bool) -> String:
