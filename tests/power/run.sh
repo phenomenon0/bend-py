@@ -5,6 +5,11 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 export PATH="$HOME/.local/bin:$PATH"
+# Pin the environment alongside the bytes: the interpreter's daily check
+# prints a one-line update notice to stderr when upstream has a newer
+# release, and these lanes byte-compare raw stdout+stderr. The notice is
+# network state, not output; the switch is the interpreter's own.
+export BEND_NO_TELEMETRY=1
 work=$(mktemp -d /tmp/bend-power.XXXXXX)
 trap 'rm -rf -- "$work"' EXIT
 pass=0
@@ -73,7 +78,10 @@ for t in tests/power/*.bend; do
     run oracle "$t" python3 "tests/power/${name}_gen.py"
   fi
   run check "$work/checked" bash -c 'check "$1"' _ "$t"
-  run interpret "$work/expected" bun bend2/main.ts "$t"
+  # a library that forks one array (Array.fork, base's O(1) shared handle)
+  # makes the checker print which defs rely on it; that note is not output
+  run interpret "$work/expected" bash -c 'set -o pipefail; bun bend2/main.ts "$1" 2>&1 |
+    sed "/^All terms check, but .* on unsafe or foreign code:\$/,/^[^-]/{/^All terms check, but/d;/^- /d}"' _ "$t"
   for lane in js c; do
     target="$work/$name"
     [ "$lane" = js ] && target="$target.js"

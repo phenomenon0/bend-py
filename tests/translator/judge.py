@@ -32,9 +32,10 @@ again on it (not inherited), C3 unchanged, and two more claims apart:
 import os
 import sys
 
-ORACLE = "/home/omen/.hermes/hermes-agent/venv/bin/python3"
+# The oracle is $PY_ORACLE, else this interpreter; either way it must be the pinned version.
+ORACLE = os.environ.get("PY_ORACLE") or sys.executable
 VERSION = (3, 11, 15)
-if os.path.abspath(sys.executable) != ORACLE:
+if os.path.abspath(sys.executable) != os.path.abspath(ORACLE):
     os.execv(ORACLE, [ORACLE, *sys.argv])
 if sys.version_info[:3] != VERSION or sys.implementation.name != "cpython":
     raise SystemExit(f"Pinned oracle changed: {ORACLE}: {sys.version}")
@@ -52,6 +53,9 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# The mined trees; $PY_MINED_ROOT re-roots them. Absent, their demos are SKIP (exit 3), not FAIL.
+MINED = Path(os.environ.get("PY_MINED_ROOT") or Path.home() / "Documents/Project")
+SKIP = 3
 WS = " \t\n\r\x0b\x0c"
 ALPHABET = (
     "".join(map(chr, range(32, 127))) + WS
@@ -125,7 +129,7 @@ DEMOS_FM_EDGES = [
 # fixtures per plan §4); the oracle must agree with them before it is trusted for anything else.
 DEMOS = {
     "normalize_stem": {
-        "path": Path.home() / "Documents/Project/llm-wiki/tools/wiki.py",
+        "path": MINED / "llm-wiki/tools/wiki.py",
         "sha256": "4af82c046d8931ed49c1034276a54fd82481e69d6ca9a3191c60cf99be17434d",
         "examples": [
             (("Hello World",), "hello-world"),
@@ -173,7 +177,7 @@ DEMOS = {
     # Unannotated in the source: the reviewed signature is the stub in `sig`, and the judge
     # passes it as PY_SIG. No doctests: the examples are labeled contract fixtures (plan 4).
     "repo_of": {
-        "path": Path.home() / "Documents/Project/llm-wiki/tools/overview.py",
+        "path": MINED / "llm-wiki/tools/overview.py",
         "sha256": "295c526c1ee5ec2b0381ab376ba7e8250320db37fdb5d6510823092b297e6500",
         "sig": "def repo_of(pid: str, slugs: list[str]) -> str | None:\n    pass\n",
         "builtins": {"len": len},
@@ -257,7 +261,7 @@ DEMOS = {
     # stub is the reviewed signature, and its `import re` is the labeled assumption that `re` is
     # the stdlib module, which `imported` checks against the source module by `ast`.
     "fm_sources": {
-        "path": Path.home() / "Documents/Project/llm-wiki/tools/synapse.py",
+        "path": MINED / "llm-wiki/tools/synapse.py",
         "sha256": "e40787adf3abbb7112660ed3c9d36ec9c36c7a9baceb5152498af17ea2c7956f",
         "sig": "import re\ndef fm_sources(text: str) -> list[str]:\n    pass\n",
         "builtins": {},
@@ -336,8 +340,8 @@ DEMOS = {
     # the source: the reviewed signature is the stub in `sig`, and a stub is types only -- there
     # is no Python syntax for a postcondition, so the claim cannot be smuggled in through it.
     "html_file_name": {
-        "path": Path.home()
-        / "Documents/Project/ipad-lab/tools/build-src/apple-libtapi/src/llvm/tools/opt-viewer/optrecord.py",
+        "path": MINED
+        / "ipad-lab/tools/build-src/apple-libtapi/src/llvm/tools/opt-viewer/optrecord.py",
         "sha256": "f8270a39f647ca17dc20a4ff76181129c31ea4a97e8b0e01c70c310302574249",
         "sig": "def html_file_name(filename: str) -> str:\n    pass\n",
         "builtins": {},
@@ -449,7 +453,7 @@ DEMOS = {
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from demos_stubs1 import demos as _stubs1  # noqa: E402
 
-DEMOS.update(_stubs1(ALPHABET, WS))
+DEMOS.update(_stubs1(ALPHABET, WS, MINED))
 
 
 def extract(path, name):
@@ -1101,6 +1105,11 @@ def main():
     ap.add_argument("--optimize", action="store_true", help="then judge demos/python/optimize.bend's file (C1-C4)")
     ap.add_argument("--bench", action="store_true", help="with --optimize: time it against the faithful file (C5)")
     args = ap.parse_args()
+    parts = DEMOS[args.demo].get("module", [args.demo])
+    missing = [str(DEMOS[p]["path"]) for p in parts if not Path(DEMOS[p]["path"]).exists()]
+    if missing:
+        print(f"SKIP {args.demo}: source absent: {', '.join(missing)} (set PY_MINED_ROOT)")
+        sys.exit(SKIP)
     ok, ctx = judge(args.demo, args.show)
     if args.optimize:
         ok = optimized(args.demo, *ctx, args.show, args.bench) and ok

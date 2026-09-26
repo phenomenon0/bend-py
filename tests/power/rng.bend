@@ -29,6 +29,23 @@ def darts(d: Nat, +seed: U32, +i: U32) -> U32:
       a b = darts(p, seed, i) darts(p, seed, U32.add(i, U32.shln(1, p)))
       U32.add(a, b)
 
+# z + 8 in millionths. The four lanes hold the same double, but printing it raw
+# would pin sixteen digits of whichever libm the lane links, and only six of
+# them are the answer. The + 8 is free: |z| < 6.8 by construction, see norm.of.
+def q(z: F64) -> U32:
+  F64.to_u32(F64.add(F64.mul(F64.add(z, 8.0d), 1000000.0d), 0.5d))
+
+def insig(+seed: U32, +i: U32) -> U32:
+  bit(F64.is_lt(F64.abs(Rng.normal(seed, 2, i)), 1.0d))
+
+def sigma(d: Nat, +seed: U32, +i: U32) -> U32:
+  match d:
+    case 0n:
+      insig(seed, i)
+    case 1n++p:
+      a b = sigma(p, seed, i) sigma(p, seed, U32.add(i, U32.shln(1, p)))
+      U32.add(a, b)
+
 def main() -> IO(Unit):
   do IO<Unit>:
     IO.print(pair(Rng.block(0, 0, 0, 0)))
@@ -64,6 +81,13 @@ def main() -> IO(Unit):
     IO.print(U32.show(Rng.below(1727549882, 3093311510, 2406846198, 1000)))
     IO.print(U32.show(Rng.below(1203505495, 238119131, 3760058264, 1000)))
     IO.print(U32.show(darts(12n, 7, 0)))
+    IO.print(U32.show(q(Rng.normal(2720817508, 422443259, 3463391847))))
+    IO.print(U32.show(q(Rng.normal(1507332086, 598775174, 3385754322))))
+    IO.print(U32.show(q(Rng.normal(2812640468, 3214643307, 4246283621))))
+    IO.print(U32.show(q(Rng.normal(3501566526, 3291293899, 1454131517))))
+    IO.print(U32.show(q(Rng.normal(1727549882, 3093311510, 2406846198))))
+    IO.print(U32.show(q(Rng.normal(1203505495, 238119131, 3760058264))))
+    IO.print(U32.show(sigma(12n, 5, 0)))
 #|1797259609 2579123966
 #|481924860 3137350631
 #|3297917596 1212020640
@@ -97,3 +121,10 @@ def main() -> IO(Unit):
 #|80
 #|376
 #|3221
+#|8407600
+#|6979951
+#|8216174
+#|8239064
+#|9935236
+#|6730130
+#|2777

@@ -61,6 +61,40 @@ def u32(seed: U32, stream: U32, step: U32) -> U32:
 def f32(seed: U32, stream: U32, step: U32) -> F32:
   F32.div(U32.to_f32(U32.shrn(u32(seed, stream, step), 8n)), 16777216.0)
 
+# the draw reduced to 0..n-1, and with it the bootstrap: element i of replicate
+# r is below(seed, r, i, n), so a whole resample is addressable by its number
+# and no replicate is ever stored -- which is the only reason a thousand of them
+# fit anywhere.
 # ponytail: modulo bias of n / 2^32; Lemire's reject loop when a caller needs it
 def below(seed: U32, stream: U32, step: U32, n: U32) -> U32:
   U32.mod(u32(seed, stream, step), n)
+
+# -- normal ------------------------------------------------------------------
+
+# Box-Muller on the two words one block already returns: no second call, and the
+# k-th normal is addressable exactly like the k-th uniform.
+#
+# F64 and not F32, for the same reason bm25.bend does its idf in F64: the four
+# lanes have to agree, and F32.log is logf in C and a rounded Math.log in JS,
+# which are different rows. In F64 they are the same double to the last bit that
+# matters here.
+#
+# a is nudged to (a + 0.5) / 2^32 so it is never 0 (log(0) is -inf on every lane
+# and would poison the fixture) and never 1. That also bounds the answer: the
+# largest |z| this can produce is sqrt(2 * ln(2^33)) < 6.8, which is what lets
+# the fixture print z + 8 as an unsigned fixed-point number with no sign column.
+def norm.of(a: U32, b: U32) -> F64:
+  F64.mul(
+    F64.sqrt(F64.mul(F64.neg(2.0d),
+      F64.log(F64.div(F64.add(U32.to_f64(a), 0.5d), 4294967296.0d)))),
+    F64.cos(F64.mul(6.283185307179586d, F64.div(U32.to_f64(b), 4294967296.0d))))
+
+def norm.pair(ab: U32 & U32) -> F64:
+  (a, b) = ab
+  norm.of(a, b)
+
+# ponytail: the sine half of the pair is thrown away -- keeping it would make
+# the draw at (seed, stream, step) depend on whether step is even, which is the
+# one property this whole file exists to avoid.
+def normal(seed: U32, stream: U32, step: U32) -> F64:
+  norm.pair(block(seed, stream, step, 0))

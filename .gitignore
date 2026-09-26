@@ -7,3 +7,5 @@ work/
 # created by setup.sh (they belong to the Bend checkout, not this repo)
 bend2
 demos/
+# fetched by setup.sh at BEND_PIN
+.bend/
