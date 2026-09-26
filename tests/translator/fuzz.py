@@ -69,7 +69,14 @@ class Gen:
             dn = self.pick(calls)
             ps = [ps for n, ps, _ in self.defs if n == dn][0]
             k = len(ps) - (self.r.randint(0, self.ndef.get(dn, 0)) if self.p(60) else 0)  # omit defaulted tails
-            return f"{dn}({', '.join(self.expr(env, pt, d + 1) for pt in ps[:k])})"
+            args = [self.expr(env, pt, d + 1) for pt in ps[:k]]
+            if k and self.p(35):
+                # keywords for a tail of the arguments, in shuffled order
+                j = self.r.randint(0, k - 1)
+                kw = [f"p{i}={a}" for i, a in enumerate(args) if i >= j]
+                self.r.shuffle(kw)
+                args = args[:j] + kw
+            return f"{dn}({', '.join(args)})"
         if t == "str":
             s = lambda: self.expr(env, "str", d + 1)
             return self.pick([
@@ -81,6 +88,7 @@ class Gen:
                 lambda: f"({s()} if {self.expr(env, 'bool', d + 1)} else {s()})",
                 lambda: f"{s()}.upper()", lambda: f"{s()}.lstrip()", lambda: f"{s()}.rstrip()",
                 lambda: f"{self.lit()}.join({self.expr(env, 'list[str]', d + 1)})",
+                lambda: self.fstr(env),
             ])()
         if t == "bool":
             s = lambda: self.expr(env, "str", d + 1)
@@ -104,6 +112,19 @@ class Gen:
             ])()
         return self.expr(env, "str", d + 1) if self.p(60) else "None"  # str | None
 
+    def fstr(self, env):
+        """An f-string of plain fields: str names and methods on them."""
+        own = self.names(env, "str")
+        if not own:
+            return self.lit()
+        parts = []
+        for _ in range(self.r.randint(1, 3)):
+            if self.p(50):
+                parts.append(self.pick(["a", "-", " ", "{{", "}}", "x.y", ""]))
+            n = self.pick(own)
+            parts.append("{" + self.pick([n, n + ".strip()", n + ".upper()", n + ".lower()"]) + "}")
+        return 'f"' + "".join(parts) + '"'
+
     def test(self, env):
         """An `if` test: a bool, or a str / list read for its truth value."""
         k = self.r.randint(0, 5)
@@ -123,7 +144,7 @@ class Gen:
             k = self.r.randint(0, 9)
             if k <= 3:
                 t = self.pick(["str", "str", "bool", "list[str]"])
-                n = self.pick(["t", "u", "v", "w"])
+                n = self.pick(["t", "u", "v", "w", "T", "Uv"])
                 if env.get(n) not in (None, t):
                     continue
                 out.append(f"{pad}{n} = {self.expr(env, t)}")

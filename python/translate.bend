@@ -2409,7 +2409,7 @@ def constant_body(+body: S.Json, +ks: List<&2, KD>) -> S.Json:
 # as before, and a keyword call is untouched (refused as before). Untrusted,
 # like all elaboration: the result is elaborated and verified as written.
 type DefD is Data:
-  DefD{name: String, n: Nat, ds: S.Json}
+  DefD{name: String, ps: S.Json, ds: S.Json, lit: Bool}
 
 def lit_defaults(+ds: S.Json) -> Bool:
   match ds:
@@ -2423,8 +2423,9 @@ def dflts(+body: S.Json) -> List<&2, DefD>:
     case S.JItem{+h, +t}:
       +a = Lint.field(h, "args")
       +ds = Lint.items(Lint.field(a, "defaults"))
-      S.choose(List<&2, DefD>, String.eq(Lint.tag_of(h), "FunctionDef") && Bool.not(Lint.is_empty(Lint.field(a, "defaults"))) && lit_defaults(ds),
-        u => DefD{N.string(Lint.field(h, "name")), Lint.size(Lint.items(Lint.field(a, "args"))), ds} <> dflts(t), u => dflts(t))
+      +lit = lit_defaults(ds)
+      S.choose(List<&2, DefD>, String.eq(Lint.tag_of(h), "FunctionDef"),
+        u => DefD{N.string(Lint.field(h, "name")), Lint.items(Lint.field(a, "args")), S.choose(S.Json, lit, u => ds, u => S.JEnd{}), lit} <> dflts(t), u => dflts(t))
     case _:
       []
 
@@ -2432,8 +2433,8 @@ def find_d(+dd: List<&2, DefD>, +id: String) -> Maybe<&2, DefD>:
   match dd:
     case Nil{}:
       None{}
-    case DefD{+n, +k, +ds} <> +t:
-      S.choose(Maybe<&2, DefD>, String.eq(n, id), u => Some{DefD{n, k, ds}}, u => find_d(t, id))
+    case DefD{+n, +ps, +ds, +lit} <> +t:
+      S.choose(Maybe<&2, DefD>, String.eq(n, id), u => Some{DefD{n, ps, ds, lit}}, u => find_d(t, id))
 
 def jdrop(i: Nat, js: S.Json) -> S.Json:
   match i js:
@@ -2443,16 +2444,6 @@ def jdrop(i: Nat, js: S.Json) -> S.Json:
       jdrop(p, t)
     case _ _:
       S.JEnd{}
-
-# The call's arguments with the omitted trailing defaults appended.
-def filled(+d: Maybe<&2, DefD>, +args: S.Json) -> S.Json:
-  match d:
-    case None{}:
-      args
-    case Some{DefD{+name, +n, +ds}}:
-      +k = Lint.size(args)
-      +first = Nat.sub(n, Lint.size(ds))
-      S.choose(S.Json, Nat.is_ge(k, first) && Nat.is_lt(k, n), u => chain(args, jdrop(Nat.sub(k, first), ds)), u => args)
 
 def set_field(+fs: S.Json, +key: String, +v: S.Json) -> S.Json:
   match fs:
@@ -2468,15 +2459,293 @@ def fields(+j: S.Json) -> S.Json:
     case _:
       S.JEnd{}
 
-# One node, its children already filled: a call to a def with literal
-# defaults gets them; that def's header loses them.
+# An item list (not a JArr, which Lint.is_empty takes) with nothing in it.
+def jempty(+js: S.Json) -> Bool:
+  match js:
+    case S.JItem{+h, +t}:
+      False{}
+    case _:
+      True{}
+
+# ---- keyword arguments and omitted defaults: put in order at the call ----
+
+# A call to a module def is rewritten to the full positional call the kernel
+# checks: positional arguments first, then each remaining parameter from the
+# keyword naming it, else from the header's literal default. Every expression
+# in the fragment is pure, so evaluating arguments in parameter order rather
+# than written order is unobservable. A keyword that names no parameter, or
+# one already given positionally (a TypeError in CPython), `**kw`, too many or
+# too few arguments: the call is left as written and refused as before.
+def kw_find(+kws: S.Json, +name: String) -> Maybe<&2, S.Json>:
+  match kws:
+    case S.JItem{+h, +t}:
+      S.choose(Maybe<&2, S.Json>, String.eq(N.string(Lint.field(h, "arg")), name), u => Some{Lint.field(h, "value")}, u => kw_find(t, name))
+    case _:
+      None{}
+
+def has_param(+ps: S.Json, +name: String) -> Bool:
+  match ps:
+    case S.JItem{+h, +t}:
+      String.eq(N.string(Lint.field(h, "arg")), name) || has_param(t, name)
+    case _:
+      False{}
+
+# Every keyword names a parameter after the positional ones.
+def kw_ok(+kws: S.Json, +rest: S.Json) -> Bool:
+  match kws:
+    case S.JItem{+h, +t}:
+      Bool.not(Lint.is_null(Lint.field(h, "arg"))) && has_param(rest, N.string(Lint.field(h, "arg"))) && kw_ok(t, rest)
+    case _:
+      True{}
+
+def jhead(+js: S.Json) -> Maybe<&2, S.Json>:
+  match js:
+    case S.JItem{+h, +t}:
+      Some{h}
+    case _:
+      None{}
+
+def cons_m(+h: Maybe<&2, S.Json>, +t: Maybe<&2, S.Json>) -> Maybe<&2, S.Json>:
+  match h t:
+    case Some{+x} Some{+y}:
+      Some{S.JItem{x, y}}
+    case _ _:
+      None{}
+
+# Parameter i onward: the positional argument, else the keyword, else the
+# default (defaults cover the last |ds| parameters, from `first`).
+def kw_args(+ps: S.Json, +args: S.Json, +kws: S.Json, +ds: S.Json, +first: Nat, +i: Nat) -> Maybe<&2, S.Json>:
+  match ps:
+    case S.JItem{+p, +pt}:
+      +name = N.string(Lint.field(p, "arg"))
+      +v = S.choose(Maybe<&2, S.Json>, Bool.not(jempty(args)), u => Some{Lint.first(args)}, u =>
+        S.choose(Maybe<&2, S.Json>, Maybe.is_some(&2, S.Json, kw_find(kws, name)), u => kw_find(kws, name), u =>
+          S.choose(Maybe<&2, S.Json>, Nat.is_ge(i, first), u => jhead(jdrop(Nat.sub(i, first), ds)), u => None{})))
+      cons_m(v, kw_args(pt, tail_of(args), kws, ds, first, (1n + i : Nat)))
+    case _:
+      S.choose(Maybe<&2, S.Json>, jempty(args), u => Some{S.JEnd{}}, u => None{})
+
+# The call's arguments in parameter order, or None to leave the call as is.
+def kw_order(+d: Maybe<&2, DefD>, +args: S.Json, +kws: S.Json) -> Maybe<&2, S.Json>:
+  match d:
+    case None{}:
+      None{}
+    case Some{DefD{+name, +ps, +ds, +lit}}:
+      S.choose(Maybe<&2, S.Json>, kw_ok(kws, jdrop(Lint.size(args), ps)),
+        u => kw_args(ps, args, kws, ds, Nat.sub(Lint.size(ps), Lint.size(ds)), 0n), u => None{})
+
+def with_args(+fs: S.Json, +m: Maybe<&2, S.Json>) -> S.Json:
+  match m:
+    case Some{+xs}:
+      set_field(set_field(fs, "args", S.JArr{xs}), "keywords", S.JArr{S.JEnd{}})
+    case None{}:
+      fs
+
+# ---- f-strings: concatenation ----
+
+# f"a{s}b" is "a" + s + "b" when every field is a plain `{e}` (no `!r`, no
+# `:spec`): str(e) is e for a str, and `+` on a str demands a str on both
+# sides, so a field of any other type is refused by the kernel as a type
+# mismatch rather than formatted. A literal piece is re-quoted from its source
+# text (escapes kept, `{{` already one brace); a raw piece, a `"`, a newline
+# or a trailing backslash in it keeps the f-string as written, refused.
+def fparts_ok(+ps: S.Json) -> Bool:
+  match ps:
+    case S.JItem{+h, +t}:
+      +it = Lint.items(h)
+      +txt = N.string(Lint.first(tail_of(it)))
+      Bool.not(String.contains(String.to_lower(N.string(Lint.first(it))), "r")) &&
+        Bool.not(String.contains(txt, "\"")) && Bool.not(String.contains(txt, "\n")) &&
+        Bool.not(String.ends_with(txt, "\\")) && fparts_ok(t)
+    case _:
+      True{}
+
+def fparts_text(+ps: S.Json) -> String:
+  match ps:
+    case S.JItem{+h, +t}:
+      N.string(Lint.first(tail_of(Lint.items(h)))) ++ fparts_text(t)
+    case _:
+      ""
+
+def conv_none(+j: S.Json) -> Bool:
+  match j:
+    case S.JNeg{+v}:
+      Nat.is_eq(v, 1n)
+    case _:
+      False{}
+
+def fvals_ok(+vs: S.Json) -> Bool:
+  match vs:
+    case S.JItem{+h, +t}:
+      +tag = Lint.tag_of(h)
+      +ok = S.choose(Bool, String.eq(tag, "Constant"), u => fparts_ok(Lint.items(Lint.field(h, "_parts"))), u =>
+        String.eq(tag, "FormattedValue") && conv_none(Lint.field(h, "conversion")) && Lint.is_null(Lint.field(h, "format_spec")))
+      ok && fvals_ok(t)
+    case _:
+      True{}
+
+def str_const(+text: String, +loc: S.Json) -> S.Json:
+  S.JObj{S.JField{"tag", S.JStr{"Constant"}, S.JField{"_raw", S.JStr{"\"" ++ text ++ "\""}, S.JField{"kind", S.JNull{}, S.JField{"_loc", loc, S.JEnd{}}}}}}
+
+def add_node(+a: S.Json, +b: S.Json, +loc: S.Json) -> S.Json:
+  S.JObj{S.JField{"tag", S.JStr{"BinOp"}, S.JField{"left", a, S.JField{"op", S.JObj{S.JField{"tag", S.JStr{"Add"}, S.JEnd{}}}, S.JField{"right", b, S.JField{"_loc", loc, S.JEnd{}}}}}}}
+
+def fpiece(+h: S.Json, +loc: S.Json) -> S.Json:
+  S.choose(S.Json, String.eq(Lint.tag_of(h), "Constant"), u => str_const(fparts_text(Lint.items(Lint.field(h, "_parts"))), loc), u =>
+    Lint.field(h, "value"))
+
+def fconcat(+vs: S.Json, +acc: S.Json, +loc: S.Json) -> S.Json:
+  match vs:
+    case S.JItem{+h, +t}:
+      fconcat(t, add_node(acc, fpiece(h, loc), loc), loc)
+    case _:
+      acc
+
+# The whole f-string: the first literal piece starts the sum, else "".
+def fjoined(+vs: S.Json, +loc: S.Json) -> S.Json:
+  match vs:
+    case S.JItem{+h, +t}:
+      S.choose(S.Json, String.eq(Lint.tag_of(h), "Constant"), u => fconcat(t, fpiece(h, loc), loc), u =>
+        fconcat(vs, str_const("", loc), loc))
+    case _:
+      str_const("", loc)
+
+# A def whose defaults are all literals (and there is at least one).
+def lit_def(+d: Maybe<&2, DefD>) -> Bool:
+  match d:
+    case Some{DefD{+name, +ps, +ds, +lit}}:
+      lit && Bool.not(jempty(ds))
+    case None{}:
+      False{}
+
+# ---- uppercase local names: renamed ----
+
+# A name a def binds (a parameter, an assignment target) that starts with a
+# capital reads as a constructor in Bend, so the kernel's `ident` refuses it.
+# Inside that def every such name X becomes mangle(X), reads and writes alike: the
+# fragment has no nested scope, so the def is the whole scope of X. If the def
+# already uses a mangled name, or two names mangle alike, renaming would merge
+# two variables: the def is left
+# as written, refused as before. A capital name the def does not bind (a
+# class, a constant left in place) is not touched.
+def cap(+s: String) -> Bool:
+  +h = String.take(s, 1n)
+  Bool.not(String.is_empty(h)) && Bool.not(String.eq(String.to_lower(h), h))
+
+def has_s(+ns: List<&2, String>, +x: String) -> Bool:
+  match ns:
+    case Nil{}:
+      False{}
+    case +h <> +t:
+      String.eq(h, x) || has_s(t, x)
+
+def bound_here(+fs: S.Json, +acc: List<&2, String>) -> List<&2, String>:
+  +tag = N.string(N.get(fs, "tag"))
+  +id = N.string(N.get(fs, "id"))
+  +arg = N.string(N.get(fs, "arg"))
+  +store = String.eq(tag, "Name") && String.eq(Lint.tag_of(N.get(fs, "ctx")), "Store") && cap(id) && Bool.not(has_s(acc, id))
+  S.choose(List<&2, String>, store, u => id <> acc, u =>
+    S.choose(List<&2, String>, String.eq(tag, "arg") && cap(arg) && Bool.not(has_s(acc, arg)), u => arg <> acc, u => acc))
+
+def ubound(+j: S.Json, +acc: List<&2, String>) -> List<&2, String>:
+  match j:
+    case S.JObj{+fs}:
+      ubound(fs, bound_here(fs, acc))
+    case S.JField{+k, +v, +rest}:
+      ubound(rest, ubound(v, acc))
+    case S.JArr{+xs}:
+      ubound(xs, acc)
+    case S.JItem{+h, +t}:
+      ubound(t, ubound(h, acc))
+    case _:
+      acc
+
+# Every Name id and parameter name in `j`.
+def all_names(+j: S.Json, +acc: List<&2, String>) -> List<&2, String>:
+  match j:
+    case S.JObj{+fs}:
+      +tag = N.string(N.get(fs, "tag"))
+      +here = S.choose(List<&2, String>, String.eq(tag, "Name"), u => N.string(N.get(fs, "id")) <> acc, u =>
+        S.choose(List<&2, String>, String.eq(tag, "arg"), u => N.string(N.get(fs, "arg")) <> acc, u => acc))
+      all_names(fs, here)
+    case S.JField{+k, +v, +rest}:
+      all_names(rest, all_names(v, acc))
+    case S.JArr{+xs}:
+      all_names(xs, acc)
+    case S.JItem{+h, +t}:
+      all_names(t, all_names(h, acc))
+    case _:
+      acc
+
+# X -> u_x: each capital becomes `_` and its lower case, after a `u` prefix,
+# so the result is a lower-case ident (SEP -> u_s_e_p, Sep -> u_sep).
+def mangle_tail(s: String) -> String:
+  match s:
+    case SNil{}:
+      ""
+    case SCon{+h, +t}:
+      +n = Char.to_u32(h)
+      S.choose(String, U32.is_ge(n, 65) && U32.is_le(n, 90), u => "_" ++ String.to_lower(SCon{h, ""}) ++ mangle_tail(t), u =>
+        SCon{h, mangle_tail(t)})
+
+def mangle(+s: String) -> String:
+  "u" ++ mangle_tail(s)
+
+def mangles_to(+ns: List<&2, String>, +x: String) -> Bool:
+  match ns:
+    case Nil{}:
+      False{}
+    case +h <> +t:
+      String.eq(mangle(h), x) || mangles_to(t, x)
+
+def fresh_all(+ns: List<&2, String>, +used: List<&2, String>) -> Bool:
+  match ns:
+    case Nil{}:
+      True{}
+    case +h <> +t:
+      Bool.not(has_s(used, mangle(h))) && Bool.not(mangles_to(t, mangle(h))) && fresh_all(t, used)
+
+def rename_obj(+fs: S.Json, +ns: List<&2, String>) -> S.Json:
+  +tag = N.string(N.get(fs, "tag"))
+  +id = N.string(N.get(fs, "id"))
+  +arg = N.string(N.get(fs, "arg"))
+  S.choose(S.Json, String.eq(tag, "Name") && has_s(ns, id), u => set_field(fs, "id", S.JStr{mangle(id)}), u =>
+    S.choose(S.Json, String.eq(tag, "arg") && has_s(ns, arg), u => set_field(fs, "arg", S.JStr{mangle(arg)}), u => fs))
+
+def urename(+j: S.Json, +ns: List<&2, String>) -> S.Json:
+  match j:
+    case S.JObj{+fs}:
+      S.JObj{rename_obj(urename(fs, ns), ns)}
+    case S.JField{+k, +v, +rest}:
+      S.JField{k, urename(v, ns), urename(rest, ns)}
+    case S.JArr{+xs}:
+      S.JArr{urename(xs, ns)}
+    case S.JItem{+h, +t}:
+      S.JItem{urename(h, ns), urename(t, ns)}
+    case _:
+      j
+
+# A def's fields with its capital locals renamed, when that is safe.
+def uncap(+fs: S.Json) -> S.Json:
+  +ns = ubound(S.JObj{fs}, [])
+  S.choose(S.Json, Bool.not(has_s(ns, "")) && fresh_all(ns, all_names(S.JObj{fs}, [])), u => fields(urename(S.JObj{fs}, ns)), u => fs)
+
+def fill_def(+fs: S.Json, +dd: List<&2, DefD>) -> S.Json:
+  +gs = uncap(fs)
+  S.choose(S.Json, lit_def(find_d(dd, N.string(N.get(gs, "name")))), u => set_field(gs, "args", S.JObj{set_field(fields(N.get(gs, "args")), "defaults", S.JArr{S.JEnd{}})}), u => gs)
+
+# One node, its children already filled: a def has its capital locals renamed
+# and, if its defaults are all literals, loses them from its header; a call to
+# a module def is put in parameter order (keywords, literal defaults); an
+# f-string of plain fields becomes a sum.
 def fill_obj(+fs: S.Json, +dd: List<&2, DefD>) -> S.Json:
   +tag = N.string(N.get(fs, "tag"))
   +f = N.get(fs, "func")
-  +call = String.eq(tag, "Call") && String.eq(Lint.tag_of(f), "Name") && Lint.is_empty(N.get(fs, "keywords"))
-  +dfn = String.eq(tag, "FunctionDef") && Maybe.is_some(&2, DefD, find_d(dd, N.string(N.get(fs, "name"))))
-  S.choose(S.Json, call, u => set_field(fs, "args", S.JArr{filled(find_d(dd, N.string(Lint.field(f, "id"))), Lint.items(N.get(fs, "args")))}), u =>
-    S.choose(S.Json, dfn, u => set_field(fs, "args", S.JObj{set_field(fields(N.get(fs, "args")), "defaults", S.JArr{S.JEnd{}})}), u => fs))
+  +call = String.eq(tag, "Call") && String.eq(Lint.tag_of(f), "Name")
+  +vs = Lint.items(N.get(fs, "values"))
+  S.choose(S.Json, String.eq(tag, "FunctionDef"), u => fill_def(fs, dd), u =>
+    S.choose(S.Json, call, u => with_args(fs, kw_order(find_d(dd, N.string(Lint.field(f, "id"))), Lint.items(N.get(fs, "args")), Lint.items(N.get(fs, "keywords")))), u =>
+      S.choose(S.Json, String.eq(tag, "JoinedStr") && fvals_ok(vs), u => fields(fjoined(vs, N.get(fs, "_loc"))), u => fs)))
 
 def fill(+j: S.Json, +dd: List<&2, DefD>) -> S.Json:
   match j:
